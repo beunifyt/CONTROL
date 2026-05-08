@@ -43,7 +43,7 @@ export const config = {
   app: {
     name: 'UnifyT',
     bootstrapAdminEmail: 'carlosreyesrivera12@gmail.com', // Primer usuario que se autopromociona a admin
-    defaultCompany: 'BeUnifyT',
+    defaultCompany: 'Mi Empresa',
     defaultLang: 'es',
     locale: 'es-ES',
     currency: 'EUR',
