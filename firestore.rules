@@ -1,0 +1,215 @@
+rules_version = '2';
+
+// ═══════════════════════════════════════════════════════════════
+// BeUnifyT — Reglas de seguridad de Firestore
+//
+// Cubre los riesgos A-02, A-03, F-04, S-02 de BUGS-Y-RIESGOS.md
+// Todas las restricciones del frontend están replicadas aquí
+// porque el frontend no es seguridad.
+// ═══════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isActiveUser() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userDoc().active == true;
+    }
+    function isAdmin() {
+      return isActiveUser() && userDoc().role == 'admin';
+    }
+    function isSupervisor() {
+      return isActiveUser() && (userDoc().role == 'admin' || userDoc().role == 'supervisor');
+    }
+    function isOperario() {
+      return isActiveUser() && (userDoc().role == 'admin' || userDoc().role == 'supervisor' || userDoc().role == 'operario');
+    }
+    // Lectura segura: si config/permisos NO existe (primer arranque),
+    // devolvemos defaults razonables. Esto evita el bug A-RULES.1
+    // donde la app quedaba bloqueada hasta que el admin abriera el modal.
+    function permsExists() {
+      return exists(/databases/$(database)/documents/config/permisos);
+    }
+    function permsDoc() {
+      return get(/databases/$(database)/documents/config/permisos).data;
+    }
+    function defaultCanCreate(role) {
+      // mismo default que DEFAULT_PERMS en js/roles.js
+      return role == 'supervisor' || role == 'operario';
+    }
+    function defaultCanEdit(role) {
+      return role == 'supervisor' || role == 'operario';
+    }
+    function defaultCanDelete(role) {
+      return role == 'supervisor';
+    }
+    function getCanCreate(role) {
+      return permsExists() && permsDoc()[role] != null
+        ? permsDoc()[role].canCreate == true
+        : defaultCanCreate(role);
+    }
+    function getCanEdit(role) {
+      return permsExists() && permsDoc()[role] != null
+        ? permsDoc()[role].canEdit == true
+        : defaultCanEdit(role);
+    }
+    function getCanDelete(role) {
+      return permsExists() && permsDoc()[role] != null
+        ? permsDoc()[role].canDelete == true
+        : defaultCanDelete(role);
+    }
+    function canCreate() {
+      return isAdmin() || (isActiveUser() && getCanCreate(userDoc().role));
+    }
+    function canEdit() {
+      return isAdmin() || (isActiveUser() && getCanEdit(userDoc().role));
+    }
+    function canDelete() {
+      return isAdmin() || (isActiveUser() && getCanDelete(userDoc().role));
+    }
+
+    // ── users/{uid} ──────────────────────────────────────────
+    // A-02: solo el propio user o admin pueden leer
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+
+      // Crear: solo el propio user (para flujo de loadOrCreateProfile)
+      allow create: if isSignedIn() && request.auth.uid == uid;
+
+      // Update: el propio user puede actualizar lang/displayName/photoURL,
+      // el admin puede actualizar todo
+      allow update: if isAdmin()
+                    || (isSignedIn() && request.auth.uid == uid
+                        && request.resource.data.role == resource.data.role
+                        && request.resource.data.active == resource.data.active);
+
+      // Delete: solo admin
+      allow delete: if isAdmin();
+    }
+
+    // ── config/{docId} (permisos) ────────────────────────────
+    match /config/{docId} {
+      allow read:  if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── invites/{code} ──────────────────────────────────────
+    match /invites/{code} {
+      // Read: cualquier usuario autenticado (para validar al crear su perfil)
+      allow read: if isSignedIn();
+      // Create: solo admin
+      allow create: if isAdmin();
+      // Update: cualquiera para marcarla como usada (con su propio uid)
+      // o admin para cualquier cosa
+      allow update: if isAdmin()
+                    || (isSignedIn()
+                        && request.resource.data.used == true
+                        && request.resource.data.usedByUid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // ── recintos / eventos / empresas / conductores / flota ─
+    match /recintos/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate();
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
+    match /eventos/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate();
+      allow update: if canEdit();
+      allow delete: if canDelete();
+
+      // Subcolección de plantillas por evento
+      match /templates/{tplId} {
+        allow read:   if isActiveUser();
+        allow create: if canCreate();
+        allow update: if canEdit();
+        allow delete: if canDelete();
+      }
+    }
+    match /empresas/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate();
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
+    match /conductores/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate();
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
+    match /flota/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate();
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
+
+    // ── referencias ─────────────────────────────────────────
+    // S-02: validamos tipos básicos
+    match /referencias/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate()
+                    && request.resource.data.matricula is string
+                    && request.resource.data.matricula.size() <= 20
+                    && request.resource.data.eventoId is string
+                    && (!('posicion' in request.resource.data) || request.resource.data.posicion is number);
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
+
+    // ── ingresos ────────────────────────────────────────────
+    match /ingresos/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate()
+                    && request.resource.data.matricula is string
+                    && request.resource.data.matricula.size() <= 20
+                    && request.resource.data.eventoId is string
+                    && (!('posicion' in request.resource.data) || request.resource.data.posicion is number);
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
+
+    // ── agenda ──────────────────────────────────────────────
+    match /agenda/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate();
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
+
+    // ── mensajes ────────────────────────────────────────────
+    match /mensajes/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate();
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
+
+    // ── counters (posiciones automáticas) ───────────────────
+    // P-02: solo lectura/escritura por usuarios activos.
+    // La transacción se ejecuta del lado cliente — Firestore garantiza atomicidad.
+    match /counters/{counterId} {
+      allow read:  if isActiveUser();
+      allow write: if isActiveUser();
+    }
+
+    // ── plantillas globales ─────────────────────────────────
+    match /templates_global/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate();
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
+  }
+}
