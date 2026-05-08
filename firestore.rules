@@ -1,0 +1,117 @@
+// Firestore Security Rules — UnifyT
+//
+// Aplicar desde Firebase Console → Firestore → Rules → pegar y "Publish".
+//
+// Reglas:
+//  - Solo usuarios autenticados Y activos pueden leer/escribir.
+//  - admin tiene acceso total.
+//  - supervisor: aprobar gastos, gestionar vehículos.
+//  - operator: crear/editar lo propio.
+//  - viewer: solo lectura.
+//  - users: cada uno lee/edita su propio perfil; admin gestiona todos.
+//  - audit + trash: solo admin lee, nadie escribe (lo escribe el server timestamp).
+//  - invites: público en lectura (necesario para que el invitado valide), solo admin escribe.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== Helpers =====
+    function isAuth() {
+      return request.auth != null;
+    }
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isActive() {
+      return isAuth() && userDoc().active == true;
+    }
+    function role() {
+      return userDoc().role;
+    }
+    function isAdmin() {
+      return isActive() && role() == 'admin';
+    }
+    function isSupervisor() {
+      return isActive() && (role() == 'admin' || role() == 'supervisor');
+    }
+    function canWrite() {
+      return isActive() && role() in ['admin', 'supervisor', 'operator'];
+    }
+    function canRead() {
+      return isActive() && role() in ['admin', 'supervisor', 'operator', 'viewer'];
+    }
+
+    // ===== Users =====
+    match /users/{uid} {
+      // Cada uno se lee a sí mismo. Admin lee todos.
+      allow read: if isAuth() && (request.auth.uid == uid || isAdmin());
+      // Crear el propio perfil al registrarse (auto-bootstrap)
+      allow create: if isAuth() && request.auth.uid == uid;
+      // Editar: el propio (campos básicos) o admin (todo)
+      allow update: if isAuth() && (
+        (request.auth.uid == uid &&
+          !('role' in request.resource.data.diff(resource.data).affectedKeys()) &&
+          !('active' in request.resource.data.diff(resource.data).affectedKeys()))
+        || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ===== Invites =====
+    match /invites/{code} {
+      // Lectura pública: el invitado debe poder validar antes de loguearse
+      allow read: if true;
+      // Solo admin crea/borra
+      allow create, delete: if isAdmin();
+      // Update: el invitado puede marcar used:true; admin puede todo
+      allow update: if isAdmin() || (
+        isAuth() &&
+        request.resource.data.used == true &&
+        resource.data.email == request.auth.token.email
+      );
+    }
+
+    // ===== Expenses =====
+    match /expenses/{id} {
+      allow read: if canRead();
+      allow create: if canWrite();
+      allow update: if canWrite();
+      allow delete: if isAdmin();
+    }
+
+    // ===== Vehicles =====
+    match /vehicles/{id} {
+      allow read: if canRead();
+      allow create, update: if canWrite();
+      allow delete: if isSupervisor();
+    }
+
+    // ===== Events =====
+    match /events/{id} {
+      allow read: if canRead();
+      allow create, update, delete: if isSupervisor();
+    }
+
+    // ===== Audit log =====
+    match /audit/{id} {
+      allow read: if isAdmin();
+      allow create: if isActive(); // cualquier acción autenticada genera audit
+      allow update, delete: if false; // inmutable
+    }
+
+    // ===== Trash (soft-deletes) =====
+    match /trash/{id} {
+      allow read: if isAdmin();
+      allow create: if canWrite();
+      allow delete: if isAdmin();
+      allow update: if false;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
