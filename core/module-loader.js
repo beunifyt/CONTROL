@@ -30,7 +30,20 @@ const MODULES = [
   'expenses',
   'vehicles',
   'events',
-  'users'
+  'users',
+  // Módulos de Control:
+  'ingresos',
+  'ingresos2',
+  'flota',
+  'conductores',
+  'agenda',
+  'recintos',
+  'empresas',
+  'mensajes',
+  'papelera',
+  'impresion',
+  'auditoria',
+  'ocr'
 ];
 
 class ModuleLoader {
