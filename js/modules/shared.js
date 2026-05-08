@@ -1,4 +1,4 @@
-// _shared.js — helpers comunes a todos los módulos
+// shared.js — helpers comunes a todos los módulos
 import { el, icon } from '../utils.js';
 
 export function pageHeader({ title, sub, actions=[] }){

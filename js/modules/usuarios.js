@@ -1,7 +1,7 @@
 // usuarios.js — gestión de usuarios + matriz de permisos por rol
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, fmtDate } from '../utils.js';
 import { listLive, list, update, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, badge } from './_shared.js';
+import { pageHeader, emptyState, badge } from './shared.js';
 import { isAdmin, ROLE_LABEL, ROLES, MODULES, getPerms, savePerms, DEFAULT_PERMS } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 import { createInvite, listInvites, deleteInvite } from '../invites.js';

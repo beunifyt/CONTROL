@@ -1,7 +1,7 @@
 // empresas.js — portal B2B
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch } from '../utils.js';
 import { listLive, create, update, remove, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, badge } from './_shared.js';
+import { pageHeader, emptyState, searchInput, badge } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 

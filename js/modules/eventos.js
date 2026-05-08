@@ -1,7 +1,7 @@
 // eventos.js — gestión de eventos
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, fmtDate } from '../utils.js';
 import { listLive, list, create, update, remove, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState } from './_shared.js';
+import { pageHeader, emptyState } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 

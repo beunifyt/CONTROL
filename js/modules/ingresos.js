@@ -1,7 +1,7 @@
 // ingresos.js — Ingresos libres (tipo 2) con campo Posición separado
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, todayKey } from '../utils.js';
 import { listLive, list, update, remove, createIngreso, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, selectInput, statusBadge } from './_shared.js';
+import { pageHeader, emptyState, searchInput, selectInput, statusBadge } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 

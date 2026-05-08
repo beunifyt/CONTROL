@@ -4,7 +4,7 @@
 
 import { el, clear, icon, fmtTime, fmtRelative } from '../utils.js';
 import { listLive, registerListener, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, statCard, emptyState } from './_shared.js';
+import { pageHeader, statCard, emptyState } from './shared.js';
 import { tr } from '../i18n.js';
 
 let _container = null;

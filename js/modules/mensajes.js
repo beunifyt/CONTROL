@@ -1,7 +1,7 @@
 // mensajes.js — mensajería interna (urgente / alerta / info)
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, fmtRelative } from '../utils.js';
 import { listLive, create, update, remove, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState } from './_shared.js';
+import { pageHeader, emptyState } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 

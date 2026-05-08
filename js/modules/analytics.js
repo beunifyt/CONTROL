@@ -1,7 +1,7 @@
 // analytics.js — métricas y gráficos básicos (sin librerías externas)
 import { el, clear, icon, fmtDate } from '../utils.js';
 import { listLive, list, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, statCard } from './_shared.js';
+import { pageHeader, statCard } from './shared.js';
 
 let _container = null;
 let _refs = [];

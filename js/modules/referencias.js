@@ -1,7 +1,7 @@
 // referencias.js — Referencias (Ingresos tipo 1) con campo Posición
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime } from '../utils.js';
 import { listLive, list, update, remove, createReferencia, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, selectInput, statusBadge } from './_shared.js';
+import { pageHeader, emptyState, searchInput, selectInput, statusBadge } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 

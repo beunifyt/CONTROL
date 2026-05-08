@@ -4,7 +4,7 @@
 
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData } from '../utils.js';
 import { listLive, list, listTemplates, listGlobalTemplates, saveTemplate, deleteTemplate, loadDefaultTemplate, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState } from './_shared.js';
+import { pageHeader, emptyState } from './shared.js';
 import { canCreate, canEdit } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 import { appBaseUrl } from '../firebase-config.js';
