@@ -14,21 +14,21 @@ export const config = {
   // === Firebase ===
   // https://console.firebase.google.com → Project Settings → General → Your apps
   firebase: {
-    apiKey: 'AIzaSyB02UpKF-NfciRvNyLSO3ZXouU-RkqeaK8',
-    authDomain: 'control-f84ee.firebaseapp.com',
-    projectId: 'control-f84ee',
-    storageBucket: 'control-f84ee.firebasestorage.app',
-    messagingSenderId: '491029219146',
-    appId: '1:491029219146:web:a8a0daa67abba7950923b3'
+    apiKey: 'TU_API_KEY',
+    authDomain: 'TU_PROYECTO.firebaseapp.com',
+    projectId: 'TU_PROYECTO',
+    storageBucket: 'TU_PROYECTO.appspot.com',
+    messagingSenderId: 'XXXXX',
+    appId: '1:XXXXX:web:XXXXX'
   },
 
   // === Cloudinary ===
   // https://cloudinary.com → Dashboard
   // Settings → Upload → Upload presets → Add → Signing Mode: Unsigned
   cloudinary: {
-    cloudName: 'ddb35rfoc',
-    uploadPreset: 'x7piz5m2',
-    folder: 'control/uploads'
+    cloudName: 'TU_CLOUD_NAME',
+    uploadPreset: 'TU_PRESET_UNSIGNED',
+    folder: 'unifyt/uploads'
   },
 
   // === OCR (opcional, configurable luego en Ajustes) ===
@@ -42,7 +42,7 @@ export const config = {
   // === App ===
   app: {
     name: 'UnifyT',
-    bootstrapAdminEmail: 'carlosreyesrivera12@gmail.com', // Primer usuario que se autopromociona a admin
+    bootstrapAdminEmail: 'tu@email.com', // Primer usuario que se autopromociona a admin
     defaultCompany: 'Mi Empresa',
     defaultLang: 'es',
     locale: 'es-ES',
