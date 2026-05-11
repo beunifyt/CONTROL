@@ -22,6 +22,7 @@ const KEY_PREFIX = 'mod:referencias:';
 const ESTADOS = [
   { value:'', label:'Todos los estados' },
   { value:'prerregistrado', label:'Prerregistrado' },
+  { value:'lista_espera', label:'Lista de espera' },
   { value:'en_camino', label:'En camino' },
   { value:'rampa_parking', label:'Rampa/Parking' },
   { value:'dentro_fira', label:'Dentro Fira' },
@@ -401,7 +402,7 @@ function openForm(item){
 
   const footer = el('div', { class:'modal-foot' },
     el('button', { type:'button', class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
-    el('button', { type:'submit', class:'btn btn-primary' }, 'Guardar')
+    el('button', { type:'submit', class:'btn btn-primary', onclick: () => form.requestSubmit() }, 'Guardar')
   );
 
   openModal({

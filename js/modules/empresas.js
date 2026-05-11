@@ -51,6 +51,7 @@ function render(){
   }));
 
   // Sub-tabs
+  const bloqueadasCount = _items.filter(e => e.nivel === 'bloqueada').length;
   const tabs = el('div', { class:'role-tabs', style:{marginBottom:'12px'} });
   tabs.appendChild(el('button', {
     class:`role-tab ${_subtab === 'empresas' ? 'active' : ''}`,
@@ -60,6 +61,10 @@ function render(){
     class:`role-tab ${_subtab === 'preregistros' ? 'active' : ''}`,
     onclick: () => { _subtab = 'preregistros'; render(); }
   }, `📋 Preregistros (${_preregs.length})`));
+  tabs.appendChild(el('button', {
+    class:`role-tab ${_subtab === 'bloqueadas' ? 'active' : ''}`,
+    onclick: () => { _subtab = 'bloqueadas'; render(); }
+  }, `🚫 Blacklist (${bloqueadasCount})`));
   _container.appendChild(tabs);
 
   if(_subtab === 'preregistros'){
@@ -139,7 +144,9 @@ function renderGrid(){
   clear(grid);
   const p = getCurrentProfile();
 
-  const filtered = _items.filter(e => matchesSearch(_search, e.nombre, e.cif, e.email));
+  let base = _items;
+  if(_subtab === 'bloqueadas') base = _items.filter(e => e.nivel === 'bloqueada');
+  const filtered = base.filter(e => matchesSearch(_search, e.nombre, e.cif, e.email));
 
   if(filtered.length === 0){
     grid.appendChild(emptyState({
@@ -215,7 +222,7 @@ function openForm(item){
 
   const footer = el('div', { class:'modal-foot' },
     el('button', { type:'button', class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
-    el('button', { type:'submit', class:'btn btn-primary' }, 'Guardar')
+    el('button', { type:'submit', class:'btn btn-primary', onclick: () => form.requestSubmit() }, 'Guardar')
   );
 
   openModal({ title: isEdit ? 'Editar empresa' : 'Nueva empresa', body: form, size:'lg' });

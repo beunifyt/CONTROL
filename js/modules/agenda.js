@@ -225,7 +225,7 @@ function openForm(item){
 
   const footer = el('div', { class:'modal-foot' },
     el('button', { type:'button', class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
-    el('button', { type:'submit', class:'btn btn-primary' }, 'Guardar')
+    el('button', { type:'submit', class:'btn btn-primary', onclick: () => form.requestSubmit() }, 'Guardar')
   );
 
   openModal({

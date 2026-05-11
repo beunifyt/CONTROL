@@ -130,11 +130,10 @@ function openForm(item){
   grid.appendChild(formField({ label:'Notas', name:'notas', value:data.notas, type:'textarea', full:true }));
   form.appendChild(grid);
 
-  const footer = el('div', { class:'flex gap-2' },
+  const footer = el('div', { class:'modal-foot' },
     el('button', { type:'button', class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
-    el('button', { type:'submit', class:'btn btn-primary' }, 'Guardar')
+    el('button', { type:'submit', class:'btn btn-primary', onclick: () => form.requestSubmit() }, 'Guardar')
   );
-  form.appendChild(footer);
 
   openModal({
     title: isEdit ? 'Editar recinto' : 'Nuevo recinto',
@@ -142,15 +141,7 @@ function openForm(item){
     size:'lg'
   });
 
-  // Mover el footer fuera del form para que respete los estilos del modal
-  setTimeout(() => {
-    const f = form.querySelector('.flex.gap-2');
-    if(f){
-      const modalFoot = el('div', { class:'modal-foot' });
-      modalFoot.appendChild(f);
-      form.parentElement.appendChild(modalFoot);
-    }
-  }, 60);
+  setTimeout(() => form.parentElement.appendChild(footer), 60);
 }
 
 async function deleteItem(item){

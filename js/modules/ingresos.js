@@ -241,6 +241,7 @@ function openForm(item){
     { value:'otro', label:'Otro' }
   ]}));
   grid.appendChild(formField({ label:'Estado', name:'estado', value:data.estado, options:[
+    { value:'lista_espera', label:'Lista de espera' },
     { value:'dentro', label:'Dentro' },
     { value:'salida', label:'Salida' }
   ]}));
@@ -251,7 +252,7 @@ function openForm(item){
 
   const footer = el('div', { class:'modal-foot' },
     el('button', { type:'button', class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
-    el('button', { type:'submit', class:'btn btn-primary' }, 'Guardar')
+    el('button', { type:'submit', class:'btn btn-primary', onclick: () => form.requestSubmit() }, 'Guardar')
   );
 
   openModal({

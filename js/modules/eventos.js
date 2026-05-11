@@ -96,7 +96,35 @@ async function toggleActivo(ev){
 
 function openForm(item){
   const isEdit = !!item;
-  const data = item || { nombre:'', recintoId:'', fechaInicio:'', fechaFin:'', estado:'planificado', previsionVehiculos:0, descripcion:'' };
+  const data = item || { nombre:'', recintoId:'', fechaInicio:'', fechaFin:'', estado:'planificado', previsionVehiculos:0, descripcion:'', camposActivos:{} };
+
+  // Catálogo de campos opcionales por evento
+  const FIELDS_CATALOG = [
+    {id:'remolque', label:'Remolque'},
+    {id:'tipoVehiculo', label:'Tipo vehículo'},
+    {id:'tipoCarga', label:'Tipo carga'},
+    {id:'puerta', label:'Puerta'},
+    {id:'horaPlanificada', label:'Hora planificada'},
+    {id:'horaEntrada', label:'Hora entrada'},
+    {id:'horaSalida', label:'Hora salida'},
+    {id:'tacografo', label:'Tacógrafo'},
+    {id:'pesoCarga', label:'Peso carga'},
+    {id:'volumen', label:'Volumen'},
+    {id:'codigoSeguridad', label:'Cód. seguridad'},
+    {id:'idiomaConductor', label:'Idioma conductor'},
+    {id:'observaciones', label:'Observaciones'},
+    {id:'origenCiudad', label:'Origen (ciudad)'},
+    {id:'destinoStand', label:'Destino stand'},
+    {id:'numAcompanantes', label:'Nº acompañantes'},
+    {id:'rampaAsignada', label:'Rampa asignada'},
+    {id:'documentacion', label:'Documentación'},
+    {id:'seguro', label:'Nº póliza seguro'},
+    {id:'placaTrailer', label:'Placa tráiler'},
+    {id:'kmRecorridos', label:'Km recorridos'},
+    {id:'horasViaje', label:'Horas de viaje'}
+  ];
+
+  const camposActivos = {...(data.camposActivos || {})};
 
   const form = el('form', { onsubmit: async (e) => {
     e.preventDefault();
@@ -109,7 +137,8 @@ function openForm(item){
         fechaFin: fd.fechaFin ? new Date(fd.fechaFin) : null,
         estado: fd.estado || 'planificado',
         previsionVehiculos: Number(fd.previsionVehiculos) || 0,
-        descripcion: fd.descripcion || ''
+        descripcion: fd.descripcion || '',
+        camposActivos
       };
       if(isEdit) await update('eventos', item.id, payload);
       else await create('eventos', payload);
@@ -139,9 +168,44 @@ function openForm(item){
   grid.appendChild(formField({ label:'Descripción', name:'descripcion', value:data.descripcion, type:'textarea', full:true }));
   form.appendChild(grid);
 
+  // Campos opcionales por evento (20+)
+  form.appendChild(el('h4', {style:{margin:'18px 0 8px', fontSize:'13px', textTransform:'uppercase', color:'var(--text-3)'}},
+    'Campos opcionales activos en este evento'));
+  form.appendChild(el('p', {class:'cell-mute', style:{fontSize:'12px', marginTop:0}},
+    'Marca qué campos extra aparecerán en los formularios de referencias/ingresos.'));
+  const camposGrid = el('div', {style:{
+    display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))',
+    gap:'6px', marginTop:'8px'
+  }});
+  for(const f of FIELDS_CATALOG){
+    const isActive = camposActivos[f.id];
+    const chip = el('label', {
+      style:{
+        display:'flex', alignItems:'center', gap:'8px',
+        padding:'6px 10px', cursor:'pointer',
+        background: isActive ? 'var(--primary-soft)' : 'var(--surface-2)',
+        color: isActive ? 'var(--primary)' : 'var(--text-2)',
+        borderRadius:'6px', fontSize:'12px'
+      }
+    },
+      el('input', {
+        type:'checkbox',
+        checked: isActive ? 'checked' : null,
+        onchange: e => {
+          camposActivos[f.id] = e.target.checked;
+          chip.style.background = e.target.checked ? 'var(--primary-soft)' : 'var(--surface-2)';
+          chip.style.color = e.target.checked ? 'var(--primary)' : 'var(--text-2)';
+        }
+      }),
+      el('span', {}, f.label)
+    );
+    camposGrid.appendChild(chip);
+  }
+  form.appendChild(camposGrid);
+
   const footer = el('div', { class:'modal-foot' },
     el('button', { type:'button', class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
-    el('button', { type:'submit', class:'btn btn-primary' }, 'Guardar')
+    el('button', { type:'submit', class:'btn btn-primary', onclick: () => form.requestSubmit() }, 'Guardar')
   );
 
   openModal({

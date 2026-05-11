@@ -23,7 +23,7 @@ import { getStorage } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-
 
 // ── 1) Configuración del proyecto Firebase ─────────────────────
 export const firebaseConfig = {
-  apiKey: "AIzaSyB02UpKF-NfciRvNyLSO3ZXouU-RkqeaK8",
+  apiKey: 'AIzaSyB02UpKF----------',
   authDomain: 'control-f84ee.firebaseapp.com',
   projectId: 'control-f84ee',
   storageBucket: 'control-f84ee.firebasestorage.app',

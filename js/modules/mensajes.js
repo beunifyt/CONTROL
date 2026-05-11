@@ -89,6 +89,8 @@ function openForm(){
       await create('mensajes', {
         titulo: fd.titulo, texto: fd.texto,
         tipo: fd.tipo || 'info',
+        linkedColl: fd.linkedColl || null,
+        linkedId: fd.linkedId || null,
         de: p?.displayName || p?.email || 'Sistema',
         leido: false
       });
@@ -105,11 +107,18 @@ function openForm(){
     { value:'urgente', label:'Urgente' }
   ], full:true }));
   grid.appendChild(formField({ label:'Mensaje', name:'texto', type:'textarea', required:true, full:true }));
+  // Anclar a registro (opcional)
+  grid.appendChild(formField({ label:'Anclar a (módulo)', name:'linkedColl', value:'', options:[
+    { value:'', label:'No anclado' },
+    { value:'referencias', label:'Referencias' },
+    { value:'ingresos', label:'Ingresos' }
+  ], full:true }));
+  grid.appendChild(formField({ label:'ID del registro', name:'linkedId', value:'', placeholder:'(opcional)', full:true }));
   form.appendChild(grid);
 
   const footer = el('div', { class:'modal-foot' },
     el('button', { type:'button', class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
-    el('button', { type:'submit', class:'btn btn-primary' }, 'Enviar')
+    el('button', { type:'submit', class:'btn btn-primary', onclick: () => form.requestSubmit() }, 'Enviar')
   );
 
   openModal({ title:'Nuevo mensaje', body:form });

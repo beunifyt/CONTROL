@@ -18,7 +18,9 @@ export const MODULES = [
   { id:'mensajes',    label:'Mensajes',    icon:'mensajes' },
   { id:'impresion',   label:'Impresión',   icon:'impresion' },
   { id:'usuarios',    label:'Usuarios',    icon:'usuarios', adminOnly:true },
-  { id:'papelera',    label:'Papelera',    icon:'trash', adminOnly:false }
+  { id:'papelera',    label:'Papelera',    icon:'trash', adminOnly:false },
+  { id:'tutorial',    label:'Tutorial',    icon:'info' },
+  { id:'tracking',    label:'Seguimiento', icon:'search' }
 ];
 
 export const ROLES = ['admin','supervisor','controlador_rampa','operario','visor','user'];
@@ -34,23 +36,23 @@ export const ROLE_LABEL = {
 
 export const DEFAULT_PERMS = {
   supervisor: {
-    modules: ['dashboard','recintos','eventos','referencias','ingresos','agenda','conductores','empresas','flota','analytics','mensajes','impresion','papelera'],
+    modules: ['dashboard','recintos','eventos','referencias','ingresos','agenda','conductores','empresas','flota','analytics','mensajes','impresion','papelera','tutorial'],
     canCreate: true, canEdit: true, canDelete: true
   },
   controlador_rampa: {
-    modules: ['dashboard','referencias','ingresos','agenda','mensajes','impresion'],
+    modules: ['dashboard','referencias','ingresos','agenda','mensajes','impresion','tutorial'],
     canCreate: true, canEdit: true, canDelete: false
   },
   operario: {
-    modules: ['dashboard','referencias','ingresos','agenda','mensajes'],
+    modules: ['dashboard','referencias','ingresos','agenda','mensajes','tutorial'],
     canCreate: true, canEdit: true, canDelete: false
   },
   visor: {
-    modules: ['dashboard','referencias','ingresos','agenda','analytics','mensajes'],
+    modules: ['dashboard','referencias','ingresos','agenda','analytics','mensajes','tutorial'],
     canCreate: false, canEdit: false, canDelete: false
   },
   user: {
-    modules: ['dashboard','mensajes'],
+    modules: ['dashboard','mensajes','tutorial'],
     canCreate: false, canEdit: false, canDelete: false
   }
 };

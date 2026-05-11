@@ -18,7 +18,9 @@ const ROUTES = {
   mensajes:    () => import('./modules/mensajes.js'),
   impresion:   () => import('./modules/impresion.js'),
   usuarios:    () => import('./modules/usuarios.js'),
-  papelera:    () => import('./modules/papelera.js')
+  papelera:    () => import('./modules/papelera.js'),
+  tutorial:    () => import('./modules/tutorial.js'),
+  tracking:    () => import('./modules/tracking.js')
 };
 
 let _currentModule = null;
