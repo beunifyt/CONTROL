@@ -1,7 +1,7 @@
 // flota.js — vehículos por empresa con estados
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch } from '../utils.js';
 import { listLive, list, create, update, remove, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, selectInput, statusBadge } from './shared.js';
+import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 
@@ -40,6 +40,7 @@ function render(){
       onclick: () => openForm(null)
     }, el('span', { html: icon('plus') }), 'Nuevo vehículo'));
   }
+  actions.push(...excelButtons('flota', { canImport: canCreate(p), canExport: true }));
 
   _container.appendChild(pageHeader({
     title:'Flota',
@@ -142,7 +143,9 @@ function openForm(item){
       marca: fd.marca || '', modelo: fd.modelo || '',
       empresaId: fd.empresaId || null,
       estado: fd.estado || 'almacen',
-      tacografo: fd.tacografo || '', notas: fd.notas || ''
+      tacografo: fd.tacografo || '',
+      tipoCarga: fd.tipoCarga || '',
+      notas: fd.notas || ''
     };
     try{
       if(isEdit) await update('flota', item.id, payload);
@@ -171,6 +174,7 @@ function openForm(item){
     { value:'en_ruta', label:'En ruta' }
   ]}));
   grid.appendChild(formField({ label:'Nº tacógrafo', name:'tacografo', value:data.tacografo }));
+  grid.appendChild(formField({ label:'Tipo de carga', name:'tipoCarga', value:data.tipoCarga || '', placeholder:'Ej: refrigerada, peligrosa…' }));
   grid.appendChild(formField({ label:'Notas', name:'notas', type:'textarea', value:data.notas, full:true }));
   form.appendChild(grid);
 

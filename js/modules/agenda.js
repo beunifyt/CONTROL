@@ -1,7 +1,7 @@
 // agenda.js — citas planificadas con hora plan vs hora real
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, fmtDate, matchesSearch } from '../utils.js';
 import { listLive, list, create, update, remove, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, selectInput, statusBadge } from './shared.js';
+import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 
@@ -40,6 +40,11 @@ function render(){
       onclick: () => openForm(null)
     }, el('span', { html: icon('plus') }), 'Nueva cita'));
   }
+  actions.push(...excelButtons('agenda', {
+    eventoId: _filterEvento || null,
+    canImport: canCreate(p),
+    canExport: true
+  }));
 
   _container.appendChild(pageHeader({
     title:'Agenda',

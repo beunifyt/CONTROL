@@ -105,6 +105,14 @@ export function debounce(fn, ms=200){
 }
 
 export function toast(msg, kind='', ms=2500){
+  // Log automático según severidad del toast
+  try{
+    if(kind === 'err')      logger.error(`Toast: ${msg}`);
+    else if(kind === 'warn') logger.warn(`Toast: ${msg}`);
+    else if(kind === 'ok')   logger.ok(`Toast: ${msg}`);
+    // info no se loguea para no llenar el panel
+  } catch(_){}
+
   const root = document.getElementById('toast-root');
   if(!root) return;
   const t = el('div', { class:`toast ${kind ? 'toast-'+kind : ''}` }, String(msg));
@@ -279,6 +287,8 @@ export const ICONS = {
 
 export function icon(name){ return ICONS[name] || ''; }
 
-const DEBUG = true;
-export function log(...args){ if(DEBUG) console.log('[BeUnifyT]', ...args); }
-export function logErr(...args){ console.error('[BeUnifyT]', ...args); }
+// ── Logger profesional (delega a js/logger.js) ───────────────
+import { logger } from './logger.js';
+export function log(...args){ logger.info(args.length === 1 ? args[0] : args.join(' ')); }
+export function logErr(...args){ logger.error(args.length === 1 ? args[0] : args.join(' ')); }
+export { logger };

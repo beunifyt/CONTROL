@@ -1,13 +1,15 @@
 // empresas.js — portal B2B
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch } from '../utils.js';
 import { listLive, create, update, remove, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, badge } from './shared.js';
+import { pageHeader, emptyState, searchInput, badge, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 
 let _container = null;
 let _items = [];
+let _preregs = [];
 let _search = '';
+let _subtab = 'empresas'; // 'empresas' | 'preregistros'
 const KEY_PREFIX = 'mod:empresas:';
 
 export async function init(container){
@@ -15,6 +17,10 @@ export async function init(container){
   render();
   listLive('empresas', { key: KEY_PREFIX+'all', orderBy:'nombre' }, (items) => {
     _items = items;
+    render();
+  });
+  listLive('preregistros', { key: KEY_PREFIX+'pre', orderBy:'createdAt', order:'desc' }, (items) => {
+    _preregs = items;
     render();
   });
 }
@@ -36,12 +42,30 @@ function render(){
       onclick: () => openForm(null)
     }, el('span', { html: icon('plus') }), 'Nueva empresa'));
   }
+  actions.push(...excelButtons('empresas', { canImport: canCreate(p), canExport: true }));
 
   _container.appendChild(pageHeader({
     title:'Empresas',
-    sub:'Portal B2B con CIF y nivel de verificación',
+    sub:'Portal B2B con CIF, nivel y preregistros pendientes',
     actions
   }));
+
+  // Sub-tabs
+  const tabs = el('div', { class:'role-tabs', style:{marginBottom:'12px'} });
+  tabs.appendChild(el('button', {
+    class:`role-tab ${_subtab === 'empresas' ? 'active' : ''}`,
+    onclick: () => { _subtab = 'empresas'; render(); }
+  }, `🏢 Empresas (${_items.length})`));
+  tabs.appendChild(el('button', {
+    class:`role-tab ${_subtab === 'preregistros' ? 'active' : ''}`,
+    onclick: () => { _subtab = 'preregistros'; render(); }
+  }, `📋 Preregistros (${_preregs.length})`));
+  _container.appendChild(tabs);
+
+  if(_subtab === 'preregistros'){
+    renderPreregistros();
+    return;
+  }
 
   _container.appendChild(el('div', { class:'filter-row' },
     searchInput({ placeholder:'Buscar nombre, CIF…', onInput: v => { _search = v; renderGrid(); } })
@@ -50,6 +74,63 @@ function render(){
   const grid = el('div', { id:'empresas-grid' });
   _container.appendChild(grid);
   renderGrid();
+}
+
+function renderPreregistros(){
+  if(_preregs.length === 0){
+    _container.appendChild(emptyState({
+      iconName:'empresas', title:'Sin preregistros',
+      message:'Las empresas que se registren desde el portal público aparecerán aquí.'
+    }));
+    return;
+  }
+  const wrap = el('div', { class:'table-wrap' });
+  const tbl = el('table', { class:'table' });
+  tbl.appendChild(el('thead', {}, el('tr', {},
+    el('th',{},'Empresa'), el('th',{},'CIF'), el('th',{},'Contacto'),
+    el('th',{},'Fecha'), el('th',{},'Acciones')
+  )));
+  const tb = el('tbody');
+  for(const pr of _preregs){
+    const fecha = pr.createdAt ? (pr.createdAt.toDate ? pr.createdAt.toDate() : new Date(pr.createdAt)) : null;
+    tb.appendChild(el('tr', {},
+      el('td', { class:'cell-strong' }, pr.nombre || '—'),
+      el('td', { class:'cell-mute' }, pr.cif || '—'),
+      el('td', { class:'cell-mute' }, [pr.email, pr.telefono].filter(Boolean).join(' · ')),
+      el('td', { class:'cell-mute' }, fecha ? fecha.toLocaleDateString() : '—'),
+      el('td', {}, el('div', { class:'row-actions' },
+        el('button', { class:'btn btn-primary btn-sm', onclick: () => aprobarPrereg(pr) }, '✓ Aprobar'),
+        el('button', { class:'btn btn-secondary btn-sm', onclick: () => rechazarPrereg(pr) }, '✕ Rechazar')
+      ))
+    ));
+  }
+  tbl.appendChild(tb);
+  wrap.appendChild(tbl);
+  _container.appendChild(wrap);
+}
+
+async function aprobarPrereg(pr){
+  try{
+    await create('empresas', {
+      nombre: pr.nombre, cif: pr.cif, email: pr.email,
+      telefono: pr.telefono, direccion: pr.direccion || '',
+      nivel: 'estandar'
+    });
+    await remove('preregistros', pr.id);
+    toast(`Empresa "${pr.nombre}" aprobada`, 'ok');
+  } catch(e){ toast(e.message, 'err'); }
+}
+
+async function rechazarPrereg(pr){
+  const ok = await confirmModal({
+    title:'Rechazar preregistro',
+    message:`¿Rechazar a "${pr.nombre}"?`, danger:true, okText:'Rechazar'
+  });
+  if(!ok) return;
+  try{
+    await remove('preregistros', pr.id);
+    toast('Rechazado', 'ok');
+  } catch(e){ toast(e.message, 'err'); }
 }
 
 function renderGrid(){

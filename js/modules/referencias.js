@@ -1,9 +1,13 @@
 // referencias.js — Referencias (Ingresos tipo 1) con campo Posición
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime } from '../utils.js';
 import { listLive, list, update, remove, createReferencia, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, selectInput, statusBadge } from './shared.js';
+import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
+import { attachAutocomplete, applyDataToForm, markAgendaArrived } from '../autocomplete.js';
+import { scanPlate } from '../ocr.js';
+import { getHistory, logIncidencia, listIncidencias } from '../audit.js';
+import { logger } from '../logger.js';
 
 let _container = null;
 let _items = [];
@@ -53,6 +57,11 @@ function render(){
       onclick: () => openForm(null)
     }, el('span', { html: icon('plus') }), 'Nueva Referencia'));
   }
+  actions.push(...excelButtons('referencias', {
+    eventoId: _filterEvento || null,
+    canImport: canCreate(p),
+    canExport: true
+  }));
 
   _container.appendChild(pageHeader({
     title:'Referencias',
@@ -159,11 +168,134 @@ function rowActions(r, p){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => openForm(r), title:'Editar' },
       el('span', { html: icon('edit') })));
   }
+  if(canEdit(p)){
+    wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => openHistorial(r), title:'Historial / Incidencias' },
+      el('span', { html: '📋' })));
+  }
   if(canDelete(p)){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => deleteItem(r), title:'Eliminar' },
       el('span', { html: icon('trash') })));
   }
   return td;
+}
+
+async function openHistorial(r){
+  const [history, incidencias] = await Promise.all([
+    getHistory('referencias', r.id),
+    listIncidencias('referencias', r.id)
+  ]);
+
+  const body = document.createElement('div');
+
+  // Botón nueva incidencia
+  const btnNew = document.createElement('button');
+  btnNew.className = 'btn btn-primary btn-sm';
+  btnNew.innerHTML = '+ Nueva incidencia';
+  btnNew.onclick = () => promptIncidencia(r);
+  body.appendChild(btnNew);
+
+  // Incidencias
+  const h1 = document.createElement('h4');
+  h1.style.cssText = 'margin:16px 0 8px;font-size:13px;text-transform:uppercase;color:var(--text-3)';
+  h1.textContent = `Incidencias (${incidencias.length})`;
+  body.appendChild(h1);
+  if(incidencias.length === 0){
+    const p = document.createElement('div');
+    p.className = 'cell-mute';
+    p.textContent = 'Sin incidencias registradas';
+    body.appendChild(p);
+  } else {
+    for(const inc of incidencias){
+      const fecha = inc.createdAt?.toDate ? inc.createdAt.toDate() : null;
+      const card = document.createElement('div');
+      card.className = 'msg-card alerta';
+      card.innerHTML = `
+        <div class="msg-icon">⚠️</div>
+        <div class="msg-body">
+          <div class="msg-title">${escapeHtml(inc.tipo || 'incidencia')}</div>
+          <div class="msg-text">${escapeHtml(inc.descripcion || '')}</div>
+          <div class="msg-meta"><span>${escapeHtml(inc.userName || '—')}</span><span>${fecha ? fecha.toLocaleString() : ''}</span></div>
+        </div>`;
+      body.appendChild(card);
+    }
+  }
+
+  // Historial
+  const h2 = document.createElement('h4');
+  h2.style.cssText = 'margin:16px 0 8px;font-size:13px;text-transform:uppercase;color:var(--text-3)';
+  h2.textContent = `Historial de cambios (${history.length})`;
+  body.appendChild(h2);
+  if(history.length === 0){
+    const p = document.createElement('div');
+    p.className = 'cell-mute';
+    p.textContent = 'Sin cambios registrados';
+    body.appendChild(p);
+  } else {
+    for(const h of history.slice(0, 30)){
+      const fecha = h.createdAt?.toDate ? h.createdAt.toDate() : null;
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:8px 12px;border-bottom:1px solid var(--border);font-size:13px';
+      row.innerHTML = `
+        <span class="badge badge-${h.type === 'delete' ? 'red' : h.type === 'create' ? 'green' : 'blue'}">${h.type}</span>
+        <span class="cell-mute" style="margin-left:8px">${escapeHtml(h.userName || '—')}</span>
+        <span class="cell-mute" style="margin-left:8px">${fecha ? fecha.toLocaleString() : ''}</span>
+      `;
+      body.appendChild(row);
+    }
+  }
+
+  openModal({
+    title:`Historial · ${r.matricula} · Pos. ${r.posicion}`,
+    body, size:'lg'
+  });
+}
+
+function promptIncidencia(r){
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="field">
+      <label class="field-label">Tipo</label>
+      <select class="field-input select" id="__inc_tipo">
+        <option value="cambio_camion">Cambio camión</option>
+        <option value="cambio_conductor">Cambio conductor</option>
+        <option value="cambio_fecha">Cambio fecha</option>
+        <option value="cambio_referencia">Cambio referencia</option>
+        <option value="otro">Otro</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="field-label">Descripción</label>
+      <textarea class="field-input" id="__inc_desc" rows="3"></textarea>
+    </div>`;
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-primary';
+  btn.textContent = 'Registrar incidencia';
+  btn.onclick = async () => {
+    const tipo = body.querySelector('#__inc_tipo').value;
+    const desc = body.querySelector('#__inc_desc').value;
+    try{
+      await logIncidencia('referencias', r.id, tipo, desc);
+      toast('Incidencia registrada', 'ok');
+      closeModal();
+    } catch(e){ toast(e.message, 'err'); }
+  };
+  const footer = document.createElement('div');
+  footer.className = 'modal-foot';
+  const cancel = document.createElement('button');
+  cancel.className = 'btn btn-secondary';
+  cancel.textContent = 'Cancelar';
+  cancel.onclick = closeModal;
+  footer.appendChild(cancel);
+  footer.appendChild(btn);
+
+  openModal({ title:`Nueva incidencia · ${r.matricula}`, body });
+  setTimeout(() => body.parentElement.appendChild(footer), 60);
+}
+
+function escapeHtml(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
 }
 
 async function registrarEntrada(r){
@@ -278,7 +410,75 @@ function openForm(item){
     size:'lg'
   });
 
-  setTimeout(() => form.parentElement.appendChild(footer), 60);
+  setTimeout(() => {
+    form.parentElement.appendChild(footer);
+
+    // ── Autocompletado en cascada (Bloque A) ─────────────────
+    if(!isEdit){
+      const inpMatricula  = form.querySelector('[name="matricula"]');
+      const inpReferencia = form.querySelector('[name="referencia"]');
+      const inpConductor  = form.querySelector('[name="conductor"]');
+      const inpEmpresa    = form.querySelector('[name="empresa"]');
+
+      // Variable interna para guardar el agendaId al absorber referencia
+      let _agendaId = null;
+
+      if(inpMatricula){
+        attachAutocomplete(inpMatricula, 'matricula', (data) => {
+          applyDataToForm(form, data);
+          toast(`Matrícula encontrada (${data.matricula})`, 'ok');
+        });
+        // Botón OCR cámara junto al input
+        const scanBtn = document.createElement('button');
+        scanBtn.type = 'button';
+        scanBtn.className = 'btn btn-secondary btn-sm';
+        scanBtn.title = 'Escanear matrícula con cámara';
+        scanBtn.innerHTML = '📸';
+        scanBtn.style.cssText = 'position:absolute;right:6px;top:30px;padding:6px 10px;z-index:2';
+        scanBtn.onclick = async () => {
+          const res = await scanPlate();
+          if(res?.plate){
+            inpMatricula.value = res.plate;
+            inpMatricula.dispatchEvent(new Event('input'));
+          }
+        };
+        if(getComputedStyle(inpMatricula.parentElement).position === 'static'){
+          inpMatricula.parentElement.style.position = 'relative';
+        }
+        inpMatricula.parentElement.appendChild(scanBtn);
+      }
+      if(inpReferencia){
+        attachAutocomplete(inpReferencia, 'referencia', (data) => {
+          _agendaId = data.agendaId;
+          applyDataToForm(form, data);
+          toast(`Referencia encontrada en Agenda`, 'ok');
+          logger.info(`Referencia ${data.referencia} absorbida desde agenda`, { agendaId: data.agendaId });
+        });
+      }
+      if(inpConductor){
+        attachAutocomplete(inpConductor, 'conductor', (data) => {
+          applyDataToForm(form, data);
+          toast(`Conductor encontrado`, 'ok');
+        });
+      }
+      if(inpEmpresa){
+        attachAutocomplete(inpEmpresa, 'empresa', (data, suggestion) => {
+          if(data.bloqueada){
+            // bloqueo duro
+            toast(`Empresa "${data.empresa}" está bloqueada — no se puede registrar`, 'err', 4000);
+            return;
+          }
+          applyDataToForm(form, data);
+          toast(`Empresa encontrada (nivel: ${data.nivel})`, 'ok');
+        });
+      }
+
+      // Al enviar el form, si se absorbió referencia de agenda, marcarla como llegado
+      form.addEventListener('submit', () => {
+        if(_agendaId) markAgendaArrived(_agendaId);
+      }, { once: false });
+    }
+  }, 60);
 }
 
 async function deleteItem(item){

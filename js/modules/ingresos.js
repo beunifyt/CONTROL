@@ -1,9 +1,12 @@
 // ingresos.js — Ingresos libres (tipo 2) con campo Posición separado
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, todayKey } from '../utils.js';
 import { listLive, list, update, remove, createIngreso, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, selectInput, statusBadge } from './shared.js';
+import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
+import { attachAutocomplete, applyDataToForm } from '../autocomplete.js';
+import { scanPlate } from '../ocr.js';
+import { logger } from '../logger.js';
 
 let _container = null;
 let _items = [];
@@ -40,6 +43,11 @@ function render(){
       onclick: () => openForm(null)
     }, el('span', { html: icon('plus') }), 'Nuevo Ingreso'));
   }
+  actions.push(...excelButtons('ingresos', {
+    eventoId: _filterEvento || null,
+    canImport: canCreate(p),
+    canExport: true
+  }));
 
   _container.appendChild(pageHeader({
     title:'Ingresos',
@@ -252,7 +260,55 @@ function openForm(item){
     size:'lg'
   });
 
-  setTimeout(() => form.parentElement.appendChild(footer), 60);
+  setTimeout(() => {
+    form.parentElement.appendChild(footer);
+
+    if(!isEdit){
+      const inpMatricula = form.querySelector('[name="matricula"]');
+      const inpConductor = form.querySelector('[name="conductor"]');
+      const inpEmpresa   = form.querySelector('[name="empresa"]');
+
+      if(inpMatricula){
+        attachAutocomplete(inpMatricula, 'matricula', (data) => {
+          applyDataToForm(form, data);
+          toast(`Matrícula encontrada (${data.matricula})`, 'ok');
+        });
+        const scanBtn = document.createElement('button');
+        scanBtn.type = 'button';
+        scanBtn.className = 'btn btn-secondary btn-sm';
+        scanBtn.title = 'Escanear matrícula con cámara';
+        scanBtn.innerHTML = '📸';
+        scanBtn.style.cssText = 'position:absolute;right:6px;top:30px;padding:6px 10px;z-index:2';
+        scanBtn.onclick = async () => {
+          const res = await scanPlate();
+          if(res?.plate){
+            inpMatricula.value = res.plate;
+            inpMatricula.dispatchEvent(new Event('input'));
+          }
+        };
+        if(getComputedStyle(inpMatricula.parentElement).position === 'static'){
+          inpMatricula.parentElement.style.position = 'relative';
+        }
+        inpMatricula.parentElement.appendChild(scanBtn);
+      }
+      if(inpConductor){
+        attachAutocomplete(inpConductor, 'conductor', (data) => {
+          applyDataToForm(form, data);
+          toast(`Conductor encontrado`, 'ok');
+        });
+      }
+      if(inpEmpresa){
+        attachAutocomplete(inpEmpresa, 'empresa', (data) => {
+          if(data.bloqueada){
+            toast(`Empresa "${data.empresa}" está bloqueada — no se puede registrar`, 'err', 4000);
+            return;
+          }
+          applyDataToForm(form, data);
+          toast(`Empresa encontrada (nivel: ${data.nivel})`, 'ok');
+        });
+      }
+    }
+  }, 60);
 }
 
 async function deleteItem(item){

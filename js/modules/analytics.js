@@ -158,7 +158,7 @@ function horizontalBarsFrom(obj, order, labelMap=null){
 
 function panelResumenEventos(){
   const panel = el('div', { class:'panel', style:{ marginTop:'16px' } },
-    el('div', { class:'panel-head' }, el('h3', { class:'panel-title' }, 'Resumen por evento'))
+    el('div', { class:'panel-head' }, el('h3', { class:'panel-title' }, 'Resumen por evento (forecast vs real)'))
   );
   const wrap = el('div', { class:'table-wrap', style:{ border:'0', boxShadow:'none', borderRadius:'0' } });
   if(_eventos.length === 0){
@@ -167,18 +167,33 @@ function panelResumenEventos(){
   }
   const tbl = el('table', { class:'table' });
   tbl.appendChild(el('thead', {}, el('tr', {},
-    el('th',{},'Evento'), el('th',{},'Estado'), el('th',{},'Refs'), el('th',{},'Ingresos'), el('th',{},'Dentro')
+    el('th',{},'Evento'), el('th',{},'Estado'),
+    el('th',{},'Previsión'), el('th',{},'Refs'), el('th',{},'Ingresos'),
+    el('th',{},'Total'), el('th',{},'Cumplimiento'), el('th',{},'Dentro')
   )));
   const tb = el('tbody');
   for(const ev of _eventos){
     const refs = _refs.filter(r => r.eventoId === ev.id);
     const ings = _ings.filter(i => i.eventoId === ev.id);
     const dentro = refs.filter(r => r.estado === 'dentro_fira').length + ings.filter(i => i.estado === 'dentro').length;
+    const total = refs.length + ings.length;
+    const forecast = ev.previsionVehiculos || 0;
+    const pct = forecast ? Math.round((total / forecast) * 100) : 0;
+    let pctKind = 'gray';
+    if(forecast){
+      if(pct < 50) pctKind = 'amber';
+      else if(pct < 90) pctKind = 'blue';
+      else if(pct <= 110) pctKind = 'green';
+      else pctKind = 'red';
+    }
     tb.appendChild(el('tr', {},
       el('td', { class:'cell-strong' }, ev.nombre || '—'),
       el('td', {}, el('span', { class:`badge badge-${ev.estado === 'activo' ? 'green' : 'gray'}` }, ev.estado || '—')),
+      el('td', { class:'cell-mute' }, String(forecast || '—')),
       el('td', {}, String(refs.length)),
       el('td', {}, String(ings.length)),
+      el('td', { class:'cell-strong' }, String(total)),
+      el('td', {}, forecast ? el('span', { class:`badge badge-${pctKind}` }, `${pct}%`) : el('span', { class:'cell-mute' }, '—')),
       el('td', {}, el('span', { class:'cell-pos' }, String(dentro)))
     ));
   }

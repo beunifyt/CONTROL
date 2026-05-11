@@ -285,3 +285,100 @@ button{font-family:inherit}
 .mt-2{margin-top:8px}
 .mt-3{margin-top:12px}
 .mt-4{margin-top:16px}
+
+/* ═══════════════════════════════════════════════════════════════
+   AUTOCOMPLETADO CASCADA (Bloque A)
+═══════════════════════════════════════════════════════════════ */
+.autocomplete-dropdown{
+  font-family: inherit;
+}
+.autocomplete-item:hover{
+  background: var(--surface-2) !important;
+}
+.autocomplete-item:last-child{
+  border-bottom: 0 !important;
+}
+
+/* Botón teléfono → llama / WhatsApp */
+.tel-actions{
+  display:inline-flex; gap:4px; align-items:center;
+}
+.tel-actions a{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:24px; height:24px;
+  background:var(--surface-2); border:1px solid var(--border);
+  border-radius:6px; color:var(--text-2);
+  text-decoration:none; font-size:11px;
+  transition: all 0.1s;
+}
+.tel-actions a:hover{
+  background:var(--primary-soft); border-color:var(--primary); color:var(--primary);
+}
+.tel-actions a.tel-wa:hover{
+  background:#DCFCE7; border-color:#16A34A; color:#16A34A;
+}
+
+/* Banner empresa bloqueada */
+.blocked-warning{
+  background:var(--red-soft); color:var(--red-soft-text);
+  border:1px solid #FCA5A5; border-radius:var(--r);
+  padding:10px 12px; margin-top:8px;
+  font-size:13px; font-weight:500;
+  display:flex; align-items:center; gap:8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TEMAS — Bloque E
+═══════════════════════════════════════════════════════════════ */
+
+/* Tema oscuro */
+body[data-theme="dark"]{
+  --bg:#0F172A;
+  --surface:#1E293B; --surface-2:#0F172A;
+  --border:#334155; --border-2:#475569;
+  --text:#F1F5F9; --text-2:#CBD5E1; --text-3:#94A3B8; --text-mute:#64748B;
+  --primary-soft:#1E3A8A; --primary-soft-text:#BFDBFE;
+  --green-soft:#064E3B; --green-soft-text:#A7F3D0;
+  --amber-soft:#78350F; --amber-soft-text:#FCD34D;
+  --red-soft:#7F1D1D; --red-soft-text:#FECACA;
+  --blue-soft:#1E3A8A; --blue-soft-text:#BFDBFE;
+  --purple-soft:#581C87; --purple-soft-text:#DDD6FE;
+}
+body[data-theme="dark"] .topbar,
+body[data-theme="dark"] .login-card,
+body[data-theme="dark"] .panel,
+body[data-theme="dark"] .entity-card,
+body[data-theme="dark"] .stat-card,
+body[data-theme="dark"] .table-wrap,
+body[data-theme="dark"] .modal,
+body[data-theme="dark"] .print-col{
+  background:var(--surface) !important;
+}
+body[data-theme="dark"] .field-input,
+body[data-theme="dark"] .select,
+body[data-theme="dark"] .search-box input{
+  background:#0F172A !important; color:#F1F5F9 !important;
+  border-color:#334155 !important;
+}
+
+/* Tema suave (warm) */
+body[data-theme="soft"]{
+  --bg:#FDFBF7;
+  --surface:#FFFFFF; --surface-2:#FAF6EF;
+  --border:#E8DDC8; --border-2:#D6C8AC;
+  --text:#2C2516; --text-2:#5C5440; --text-3:#8A8267;
+  --primary:#7C6F50; --primary-hover:#5C5440;
+  --primary-soft:#F5EFE0; --primary-soft-text:#5C5440;
+}
+
+/* Tema alto contraste */
+body[data-theme="contrast"]{
+  --bg:#FFFFFF; --surface:#FFFFFF; --surface-2:#F0F0F0;
+  --border:#000000; --border-2:#000000;
+  --text:#000000; --text-2:#000000; --text-3:#333333;
+  --primary:#0000FF; --primary-hover:#0000AA;
+  --green:#006600; --red:#CC0000; --amber:#AA5500;
+}
+body[data-theme="contrast"] .btn{ border-width:2px !important; font-weight:700 !important; }
+body[data-theme="contrast"] .table th,
+body[data-theme="contrast"] .table td{ border-width:1.5px !important; }

@@ -12,7 +12,7 @@ import {
 import { validateInvite, consumeInvite, INVITE_ERRORS } from './invites.js';
 import { startPermsListener, stopPermsListener } from './roles.js';
 import { cleanupAllListeners, registerListener } from './db.js';
-import { normalizeEmail, $, el, setText, toast, log, logErr } from './utils.js';
+import { normalizeEmail, $, el, setText, toast, log, logErr, logger } from './utils.js';
 import { tr, getLang, setLang } from './i18n.js';
 
 let currentUser = null;
@@ -323,7 +323,7 @@ onAuthStateChanged(auth, async (fbUser) => {
       try{ await fn(profile); } catch(e){ logErr('onAuthReady', e); }
     }
   } catch(e){
-    logErr('auth flow', e);
+    logger.fatal('Flujo de autenticación falló', { error: e.message, stack: e.stack });
     showError(e.message || 'Error de autenticación');
     showScreen('login');
     renderLogin();

@@ -1,6 +1,31 @@
 // shared.js — helpers comunes a todos los módulos
 import { el, icon } from '../utils.js';
 
+/**
+ * Renderiza un teléfono como enlace dual: llamar + WhatsApp.
+ * Si no hay teléfono, devuelve un guion.
+ */
+export function telActions(phone){
+  if(!phone) return el('span', { class:'cell-mute' }, '—');
+  const clean = String(phone).replace(/[\s\-().]/g, '');
+  const wa = clean.startsWith('+') ? clean.slice(1) : clean;
+  return el('div', { class:'tel-actions' },
+    el('a', { href:`tel:${clean}`, title:`Llamar a ${phone}`, onclick:(e)=>e.stopPropagation() },
+      el('span', { html: '📞' })
+    ),
+    el('a', {
+      class:'tel-wa',
+      href:`https://wa.me/${wa}`,
+      target:'_blank', rel:'noopener',
+      title:`WhatsApp a ${phone}`,
+      onclick:(e)=>e.stopPropagation()
+    },
+      el('span', { html: '💬' })
+    ),
+    el('span', { class:'cell-mute', style:{marginLeft:'4px',fontSize:'12px'} }, phone)
+  );
+}
+
 export function pageHeader({ title, sub, actions=[] }){
   return el('div', { class:'page-header' },
     el('div', {},
@@ -72,4 +97,90 @@ export function statusBadge(status){
   };
   const m = map[status] || { label: status || '—', kind:'gray' };
   return badge(m.label, m.kind);
+}
+
+// ── Botones Import/Export/Plantilla Excel ────────────────────
+import { exportToExcel, downloadTemplate, importFromExcel, getSchema } from '../excel.js';
+import { logger } from '../logger.js';
+import { toast, openModal, closeModal, el as _el } from '../utils.js';
+
+/**
+ * Devuelve un array de botones Excel para meter en pageHeader actions.
+ * @param {string} modulo - nombre de la colección (referencias, ingresos, etc.)
+ * @param {object} opts - { eventoId, canImport, canExport }
+ */
+export function excelButtons(modulo, opts = {}){
+  const buttons = [];
+  if(opts.canExport !== false){
+    buttons.push(el('button', {
+      class:'btn btn-secondary btn-sm', title:'Exportar a Excel',
+      onclick: () => exportToExcel(modulo, { eventoId: opts.eventoId })
+    }, el('span', { html: '📤' }), 'Exportar'));
+  }
+  if(opts.canImport){
+    buttons.push(el('button', {
+      class:'btn btn-secondary btn-sm', title:'Descargar plantilla',
+      onclick: () => downloadTemplate(modulo)
+    }, el('span', { html: '📋' }), 'Plantilla'));
+
+    buttons.push(el('button', {
+      class:'btn btn-secondary btn-sm', title:'Importar desde Excel',
+      onclick: () => openImportDialog(modulo, opts)
+    }, el('span', { html: '📥' }), 'Importar'));
+  }
+  return buttons;
+}
+
+function openImportDialog(modulo, opts){
+  const body = el('div', {});
+  body.appendChild(el('p', { style:{ marginTop:0, color:'var(--text-2)', fontSize:'13px' } },
+    `Selecciona un archivo Excel con la estructura de la plantilla. Las filas duplicadas se omitirán.`));
+
+  const input = el('input', {
+    type:'file',
+    accept:'.xlsx,.xls,.csv',
+    class:'field-input',
+    style:{ marginTop:'8px' }
+  });
+  body.appendChild(input);
+
+  const summaryDiv = el('div', { style:{ marginTop:'12px', fontSize:'13px' } });
+  body.appendChild(summaryDiv);
+
+  const btnImport = el('button', { class:'btn btn-primary' }, 'Importar');
+  btnImport.onclick = async () => {
+    const file = input.files[0];
+    if(!file){ toast('Selecciona un archivo', 'warn'); return; }
+    btnImport.disabled = true;
+    btnImport.textContent = 'Importando…';
+    try{
+      const res = await importFromExcel(modulo, file, opts);
+      summaryDiv.innerHTML = '';
+      summaryDiv.appendChild(el('div', { class:'badge badge-green' }, `${res.created} creados`));
+      summaryDiv.appendChild(el('span', {}, ' '));
+      summaryDiv.appendChild(el('div', { class:'badge badge-amber' }, `${res.duplicates} duplicados`));
+      summaryDiv.appendChild(el('span', {}, ' '));
+      summaryDiv.appendChild(el('div', { class:'badge badge-red' }, `${res.errors} errores`));
+      if(res.errorRows && res.errorRows.length){
+        const list = el('ul', { style:{ marginTop:'8px', paddingLeft:'18px', fontSize:'12px', color:'var(--text-3)' } });
+        for(const er of res.errorRows.slice(0, 10)){
+          list.appendChild(el('li', {}, `Fila ${er.row}: ${er.msg}`));
+        }
+        summaryDiv.appendChild(list);
+      }
+      btnImport.textContent = 'Cerrar';
+      btnImport.onclick = closeModal;
+    } catch(e){
+      btnImport.disabled = false;
+      btnImport.textContent = 'Reintentar';
+    }
+  };
+
+  const footer = el('div', { class:'modal-foot' },
+    el('button', { class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
+    btnImport
+  );
+
+  openModal({ title:`Importar ${modulo} desde Excel`, body });
+  setTimeout(() => body.parentElement.appendChild(footer), 60);
 }

@@ -5,7 +5,7 @@ import {
   query, where, orderBy, limit, onSnapshot,
   runTransaction, serverTimestamp, Timestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-import { genId, log, logErr, todayKey } from './utils.js';
+import { genId, log, logErr, logger, todayKey } from './utils.js';
 
 const _listeners = new Map();
 
@@ -58,10 +58,18 @@ export function listLive(coll, opts={}, cb){
   if(constraints.length) q = query(q, ...constraints);
 
   const unsub = onSnapshot(q, (snap) => {
-    const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    try{ cb(items, snap); } catch(e){ logErr('listLive cb', e); }
+    let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Filtrar borrados a menos que se pida explícitamente
+    if(!opts.includeDeleted){
+      items = items.filter(i => !i._deleted);
+    }
+    try{ cb(items, snap); } catch(e){
+      logger.error(`listLive callback falló para ${coll}`, { error: e.message, stack: e.stack });
+    }
   }, (err) => {
-    logErr('listLive', coll, err);
+    logger.error(`listLive(${coll}) error: ${err.code || err.message}`, {
+      coll, where: opts.where, orderBy: opts.orderBy
+    });
     if(opts.onError) opts.onError(err);
   });
 
@@ -78,8 +86,13 @@ export async function get(coll, id){
 export async function create(coll, data, customId=null){
   const id = customId || genId();
   const ref = doc(db, coll, id);
+  // Añadir creadoPor automáticamente
+  const profile = window.__beunifyt_app?.auth?.currentUser;
   await setDoc(ref, {
     ...data,
+    _deleted: false,
+    creadoPor: profile?.email || null,
+    creadoPorUid: profile?.uid || null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
@@ -96,6 +109,19 @@ export async function update(coll, id, data){
 }
 
 export async function remove(coll, id){
+  // Soft-delete por defecto (papelera)
+  const ref = doc(db, coll, id);
+  const u = window.__beunifyt_app?.auth?.currentUser;
+  await setDoc(ref, {
+    _deleted: true,
+    _deletedAt: serverTimestamp(),
+    _deletedBy: u?.email || null,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+}
+
+export async function removeHard(coll, id){
+  // Eliminación permanente (solo desde papelera)
   const ref = doc(db, coll, id);
   await deleteDoc(ref);
 }
@@ -154,10 +180,14 @@ export async function createReferencia(data){
 
   const id = genId('ref');
   const ref = doc(db, 'referencias', id);
+  const u = window.__beunifyt_app?.auth?.currentUser;
   await setDoc(ref, {
     ...data,
     posicion,
     posicionManual,
+    _deleted: false,
+    creadoPor: u?.email || null,
+    creadoPorUid: u?.uid || null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
@@ -180,11 +210,15 @@ export async function createIngreso(data){
 
   const id = genId('ing');
   const ref = doc(db, 'ingresos', id);
+  const u = window.__beunifyt_app?.auth?.currentUser;
   await setDoc(ref, {
     ...data,
     posicion,
     posicionManual,
     fechaKey: dayKey,
+    _deleted: false,
+    creadoPor: u?.email || null,
+    creadoPorUid: u?.uid || null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });

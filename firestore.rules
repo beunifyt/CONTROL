@@ -211,5 +211,43 @@ service cloud.firestore {
       allow update: if canEdit();
       allow delete: if canDelete();
     }
+
+    // ── auditoría (Bloque F+G) ──────────────────────────────
+    match /audit/{id} {
+      allow read:   if isAdmin();
+      allow create: if isActiveUser();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+    match /audit_exports/{id} {
+      allow read:   if isAdmin();
+      allow create: if isActiveUser();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+    match /incidencias/{id} {
+      allow read:   if isActiveUser();
+      allow create: if isActiveUser();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── preregistros (Bloque H — portal B2B) ────────────────
+    match /preregistros/{id} {
+      // Lectura: solo admin/supervisor (info sensible)
+      allow read:   if isSupervisor();
+      // Cualquiera puede crear (portal público)
+      allow create: if true;
+      allow update: if isSupervisor();
+      allow delete: if isSupervisor();
+    }
+
+    // ── listas (blacklist, lista espera) ────────────────────
+    match /listas/{id} {
+      allow read:   if isActiveUser();
+      allow create: if canCreate();
+      allow update: if canEdit();
+      allow delete: if canDelete();
+    }
   }
 }

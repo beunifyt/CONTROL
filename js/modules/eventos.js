@@ -87,17 +87,10 @@ function render(){
 
 async function toggleActivo(ev){
   try{
-    if(ev.estado === 'activo'){
-      await update('eventos', ev.id, { estado: 'planificado' });
-    } else {
-      // Sólo un activo a la vez
-      for(const otro of _items){
-        if(otro.id !== ev.id && otro.estado === 'activo'){
-          await update('eventos', otro.id, { estado: 'planificado' });
-        }
-      }
-      await update('eventos', ev.id, { estado: 'activo' });
-    }
+    // Bloque D: múltiples eventos activos a la vez permitidos
+    await update('eventos', ev.id, {
+      estado: ev.estado === 'activo' ? 'planificado' : 'activo'
+    });
   } catch(e){ toast(e.message, 'err'); }
 }
 

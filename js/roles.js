@@ -17,26 +17,37 @@ export const MODULES = [
   { id:'analytics',   label:'Analytics',   icon:'analytics' },
   { id:'mensajes',    label:'Mensajes',    icon:'mensajes' },
   { id:'impresion',   label:'Impresión',   icon:'impresion' },
-  { id:'usuarios',    label:'Usuarios',    icon:'usuarios', adminOnly:true }
+  { id:'usuarios',    label:'Usuarios',    icon:'usuarios', adminOnly:true },
+  { id:'papelera',    label:'Papelera',    icon:'trash', adminOnly:false }
 ];
 
-export const ROLES = ['admin','supervisor','operario','user'];
+export const ROLES = ['admin','supervisor','controlador_rampa','operario','visor','user'];
 
 export const ROLE_LABEL = {
   admin: 'Administrador',
   supervisor: 'Supervisor',
+  controlador_rampa: 'Controlador Rampa',
   operario: 'Operario',
+  visor: 'Visor',
   user: 'Usuario'
 };
 
 export const DEFAULT_PERMS = {
   supervisor: {
-    modules: ['dashboard','recintos','eventos','referencias','ingresos','agenda','conductores','empresas','flota','analytics','mensajes','impresion'],
+    modules: ['dashboard','recintos','eventos','referencias','ingresos','agenda','conductores','empresas','flota','analytics','mensajes','impresion','papelera'],
     canCreate: true, canEdit: true, canDelete: true
+  },
+  controlador_rampa: {
+    modules: ['dashboard','referencias','ingresos','agenda','mensajes','impresion'],
+    canCreate: true, canEdit: true, canDelete: false
   },
   operario: {
     modules: ['dashboard','referencias','ingresos','agenda','mensajes'],
     canCreate: true, canEdit: true, canDelete: false
+  },
+  visor: {
+    modules: ['dashboard','referencias','ingresos','agenda','analytics','mensajes'],
+    canCreate: false, canEdit: false, canDelete: false
   },
   user: {
     modules: ['dashboard','mensajes'],
@@ -103,6 +114,12 @@ export function canSeeModule(profile, moduleId){
   if(profile.role === 'admin') return true;
   const mod = MODULES.find(m => m.id === moduleId);
   if(mod?.adminOnly) return false;
+
+  // Override individual del usuario (Bloque G)
+  if(profile.modulesOverride && Array.isArray(profile.modulesOverride)){
+    return profile.modulesOverride.includes(moduleId);
+  }
+
   const perm = _perms[profile.role];
   if(!perm) return false;
   return (perm.modules || []).includes(moduleId);
@@ -111,18 +128,24 @@ export function canSeeModule(profile, moduleId){
 export function canCreate(profile){
   if(!profile || profile.active === false) return false;
   if(profile.role === 'admin') return true;
+  if(profile.canCreate === true) return true;
+  if(profile.canCreate === false) return false;
   return !!_perms[profile.role]?.canCreate;
 }
 
 export function canEdit(profile){
   if(!profile || profile.active === false) return false;
   if(profile.role === 'admin') return true;
+  if(profile.canEdit === true) return true;
+  if(profile.canEdit === false) return false;
   return !!_perms[profile.role]?.canEdit;
 }
 
 export function canDelete(profile){
   if(!profile || profile.active === false) return false;
   if(profile.role === 'admin') return true;
+  if(profile.canDelete === true) return true;
+  if(profile.canDelete === false) return false;
   return !!_perms[profile.role]?.canDelete;
 }
 

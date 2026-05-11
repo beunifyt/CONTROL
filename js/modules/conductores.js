@@ -1,7 +1,7 @@
 // conductores.js — base de conductores con idiomas y matrículas habituales
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, initials } from '../utils.js';
 import { listLive, create, update, remove, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput } from './shared.js';
+import { pageHeader, emptyState, searchInput, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 
@@ -36,6 +36,7 @@ function render(){
       onclick: () => openForm(null)
     }, el('span', { html: icon('plus') }), 'Nuevo conductor'));
   }
+  actions.push(...excelButtons('conductores', { canImport: canCreate(p), canExport: true }));
 
   _container.appendChild(pageHeader({
     title:'Conductores',

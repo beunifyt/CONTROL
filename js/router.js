@@ -2,7 +2,7 @@
 import { canSeeModule } from './roles.js';
 import { getCurrentProfile } from './auth.js';
 import { unregisterListenersByPrefix } from './db.js';
-import { $, clear, log, logErr } from './utils.js';
+import { $, clear, log, logErr, logger } from './utils.js';
 
 const ROUTES = {
   dashboard:   () => import('./modules/dashboard.js'),
@@ -17,7 +17,8 @@ const ROUTES = {
   analytics:   () => import('./modules/analytics.js'),
   mensajes:    () => import('./modules/mensajes.js'),
   impresion:   () => import('./modules/impresion.js'),
-  usuarios:    () => import('./modules/usuarios.js')
+  usuarios:    () => import('./modules/usuarios.js'),
+  papelera:    () => import('./modules/papelera.js')
 };
 
 let _currentModule = null;
@@ -65,16 +66,20 @@ async function mountRoute(){
       await mod.init(container, { profile });
     }
   } catch(e){
-    logErr('route mount', name, e);
+    logger.error(`No se pudo cargar el módulo "${name}"`, {
+      module: name,
+      error: e.message,
+      stack: e.stack
+    });
     clear(container);
     const empty = document.createElement('div');
     empty.className = 'empty';
     const title = document.createElement('div');
     title.className = 'empty-title';
-    title.textContent = 'Error cargando módulo';
+    title.textContent = `Error cargando módulo: ${name}`;
     const msg = document.createElement('div');
     msg.className = 'empty-msg';
-    msg.textContent = e.message || 'Error desconocido';
+    msg.textContent = (e.message || 'Error desconocido') + ' · Pulsa Ctrl+Shift+L para ver detalles';
     empty.appendChild(title);
     empty.appendChild(msg);
     container.appendChild(empty);

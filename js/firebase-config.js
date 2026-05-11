@@ -23,15 +23,13 @@ import { getStorage } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-
 
 // ── 1) Configuración del proyecto Firebase ─────────────────────
 export const firebaseConfig = {
-  apiKey: "AIzaSyB02UpKF-NfciRvNyLSO3ZXouU-RkqeaK8",
-  authDomain: "control-f84ee.firebaseapp.com",
-  projectId: "control-f84ee",
-  storageBucket: "control-f84ee.firebasestorage.app",
-  messagingSenderId: "491029219146",
-  appId: "1:491029219146:web:f27db46db9d3a07f0923b3"
+  apiKey: 'AIzaSyB02UpKF----------',
+  authDomain: 'control-f84ee.firebaseapp.com',
+  projectId: 'control-f84ee',
+  storageBucket: 'control-f84ee.firebasestorage.app',
+  messagingSenderId: '491029219146',
+  appId: '1:491029219146:web:a8a0daa67abba7950923b3'
 };
-
-// Initialize Firebase
 
 // ── 2) Configuración de la app ─────────────────────────────────
 
