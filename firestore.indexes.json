@@ -60,9 +60,59 @@
     },
     {
       "collectionGroup": "templates",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "modulo",    "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "templates_global",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "modulo",    "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "referencias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "matricula", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ingresos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "matricula", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agenda",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "referencia",       "order": "ASCENDING" },
+        { "fieldPath": "fechaPlanificada", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "coll",      "order": "ASCENDING" },
+        { "fieldPath": "docId",     "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "incidencias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "coll",      "order": "ASCENDING" },
+        { "fieldPath": "docId",     "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     }
