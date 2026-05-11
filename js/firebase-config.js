@@ -32,7 +32,6 @@ export const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
 
 // ── 2) Configuración de la app ─────────────────────────────────
 
