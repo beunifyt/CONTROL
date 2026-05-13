@@ -1,603 +1,265 @@
 // ═══════════════════════════════════════════════════════════════
-// tutorial.js — Curso interactivo del programa
+// tutorial.js — Ayuda & Curso Interactivo (estilo Base44)
 //
-// Estructura:
-// - Lecciones agrupadas por módulo
-// - Cada lección: texto + screenshots ASCII + botones para abrir el módulo
-// - Progreso guardado en localStorage por usuario
-// - Resaltado de elementos en pantalla (modo "tour")
+// 12 módulos tipo tarjeta con pasos, progreso global,
+// estado Completado/Repasar, persistido en localStorage.
 // ═══════════════════════════════════════════════════════════════
-
-import { el, clear, icon, toast, openModal, closeModal } from '../utils.js';
-import { unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState } from './shared.js';
-import { getCurrentProfile } from '../auth.js';
-import { logger } from '../logger.js';
-import { navigate } from '../router.js';
+import { el, clear, icon, toast } from '../utils.js';
+import { pageHeader } from './shared.js';
 
 let _container = null;
-let _activeChapter = 0;
-let _activeLesson = 0;
-const KEY_PREFIX = 'mod:tutorial:';
-const PROGRESS_KEY = 'beunifyt_tutorial_progress';
+let _selectedModule = null;
+let _currentStep = 0;
+const STORAGE_KEY = 'beunifyt_curso_v1';
 
-const CURSO = [
+const MODULOS = [
   {
-    id:'intro', title:'Bienvenido a BeUnifyT', icon:'🎓',
-    lessons: [
-      {
-        id:'que_es', title:'¿Qué es BeUnifyT?',
-        content: [
-          {type:'p', text:'BeUnifyT es una plataforma de control de accesos para ferias y eventos vehiculares. Te permite registrar referencias, ingresos libres, agendar citas, gestionar conductores, empresas, flota e imprimir pases personalizados.'},
-          {type:'p', text:'Está pensada para 6 roles diferentes: Administrador, Supervisor, Controlador de Rampa, Operario, Visor y Usuario. Cada rol ve solo lo que necesita.'},
-          {type:'highlight', text:'💡 Datos en tiempo real: cuando un usuario crea un registro, todos los demás lo ven al instante.'}
-        ]
-      },
-      {
-        id:'primer_paso', title:'Tu primer paso',
-        content: [
-          {type:'p', text:'Para empezar a usar BeUnifyT necesitas tener al menos:'},
-          {type:'list', items:[
-            'Un recinto (ej: FIRA Barcelona)',
-            'Un evento ligado a ese recinto (ej: MWC 2026)',
-            'Empresas que entrarán al evento',
-            'Conductores y vehículos opcionales para agilizar el registro'
-          ]},
-          {type:'action', label:'Abrir Recintos', target:'recintos'},
-          {type:'action', label:'Abrir Eventos', target:'eventos'}
-        ]
-      },
-      {
-        id:'sidebar', title:'Navegación lateral',
-        content: [
-          {type:'p', text:'El menú izquierdo muestra solo los módulos a los que tienes acceso. Puedes reordenar los iconos arrastrándolos para poner tu favorito arriba.'},
-          {type:'highlight', text:'🎨 Cambia el tema con el botón ⚙ arriba a la derecha (claro, oscuro, suave o alto contraste).'}
-        ]
-      }
+    id:'intro', iconName:'truck', color:'#3B82F6', title:'Bienvenido a BeUnifyT',
+    descripcion:'Plataforma integral de control de acceso vehicular para recintos feriales y eventos.',
+    pasos:[
+      { titulo:'¿Qué es BeUnifyT?', contenido:'BeUnifyT es un sistema de gestión operativa para el control de vehículos en recintos feriales. Permite gestionar desde el prerregistro hasta la salida final de cada vehículo, con trazabilidad completa y cumplimiento RGPD.' },
+      { titulo:'Flujo principal del vehículo', contenido:'Cada vehículo pasa por estos estados:\n\n1️⃣ PRERREGISTRADO — La empresa envía sus datos antes del evento\n2️⃣ EN CAMINO — El vehículo está en ruta hacia el recinto\n3️⃣ RAMPA/PARKING — Ha llegado y espera turno de entrada\n4️⃣ DENTRO FIRA — Ha entrado al recinto ferial\n5️⃣ SALIDA — Ha completado la operación y ha salido\n\nCada cambio queda registrado con hora y usuario.' },
+      { titulo:'Roles de usuario', contenido:'👑 ADMIN: Acceso total, gestión de usuarios y permisos\n🛡 SUPERVISOR: Todos los módulos excepto usuarios\n✅ OPERARIO: Referencias, ingresos, agenda, mensajes\n👤 USUARIO: Dashboard y mensajes básicos\n🏢 EMPRESA: Portal B2B con datos propios\n\nEl admin puede personalizar qué módulos ve cada rol desde el panel de Usuarios → Permisos Granulares.' }
     ]
   },
   {
-    id:'recintos', title:'Recintos y Eventos', icon:'🏟',
-    lessons: [
-      {
-        id:'recinto_nuevo', title:'Crear un recinto',
-        content: [
-          {type:'p', text:'Un recinto es el edificio físico donde se celebra el evento. Tiene halls (pabellones) y puertas de acceso.'},
-          {type:'list', items:[
-            'Nombre del recinto',
-            'Ciudad y dirección',
-            'Halls separados por comas (1, 2, 3, 4)',
-            'Puertas (Norte, Sur, Este, Oeste)'
-          ]},
-          {type:'highlight', text:'⚠ Los halls que pongas aquí aparecerán como sugerencias al crear referencias.'},
-          {type:'action', label:'Crear recinto', target:'recintos'}
-        ]
-      },
-      {
-        id:'evento_nuevo', title:'Crear un evento',
-        content: [
-          {type:'p', text:'Un evento es una feria concreta que ocurre en un recinto. Ej: "MWC 2026" en FIRA Barcelona Gran Via.'},
-          {type:'list', items:[
-            'Asocia el evento al recinto',
-            'Fija fechas inicio y fin',
-            'Pon previsión de vehículos esperados (para forecast)',
-            'Marca como Activo para que aparezca en los filtros por defecto'
-          ]},
-          {type:'highlight', text:'🆕 Puedes tener varios eventos activos a la vez ahora.'},
-          {type:'action', label:'Crear evento', target:'eventos'}
-        ]
-      }
+    id:'dashboard', iconName:'dashboard', color:'#3B82F6', title:'Dashboard',
+    descripcion:'Vista en tiempo real del estado de la operación.',
+    pasos:[
+      { titulo:'Panel principal', contenido:'El Dashboard muestra en tiempo real:\n• Vehículos actualmente dentro del recinto\n• Referencias y ingresos del día actual\n• Eventos activos\n• Gráfico de actividad por hora\n• Mensajes no leídos\n• Agenda del día\n\nSe actualiza automáticamente cuando hay cambios.' },
+      { titulo:'Lectura de estadísticas', contenido:'Las tarjetas superiores muestran datos clave:\n\n🚛 Dentro Fira: vehículos actualmente en el recinto\n📋 Referencias hoy: prerregistros creados hoy\n🟢 Ingresos hoy: entradas directas del día\n📅 Eventos activos: ferias actualmente en curso\n\nEl gráfico muestra la distribución por horas — útil para prever picos.' }
     ]
   },
   {
-    id:'referencias', title:'Referencias e Ingresos', icon:'🚛',
-    lessons: [
-      {
-        id:'diferencia', title:'Referencias vs Ingresos',
-        content: [
-          {type:'h', text:'Dos módulos, dos finalidades distintas'},
-          {type:'p', text:'REFERENCIAS = vehículos con booking previo (camiones grandes que deben llevar nº referencia obligatorio). Posición persiste por evento.'},
-          {type:'p', text:'INGRESOS = vehículos sin reserva previa (furgonetas, autos pequeños). Posición reinicia cada día.'},
-          {type:'highlight', text:'💡 Una misma matrícula puede tener varias referencias el mismo día (un camión que viene varias veces para distintos expositores).'}
-        ]
-      },
-      {
-        id:'autocompletado', title:'Autocompletado mágico',
-        content: [
-          {type:'p', text:'Al crear una referencia o ingreso, el sistema busca automáticamente en cascada:'},
-          {type:'list', items:[
-            'Matrícula → busca en Flota → autollena conductor, empresa, remolque',
-            'Referencia → busca en Agenda → absorbe matrícula, hall, hora prevista',
-            'Conductor → busca en Conductores → autollena teléfono, DNI, idiomas',
-            'Empresa → busca en Empresas → autollena nivel + bloqueo si está bloqueada'
-          ]},
-          {type:'highlight', text:'🔄 Al absorber una cita de Agenda, esta queda marcada como "llegado" automáticamente.'},
-          {type:'action', label:'Probar en Referencias', target:'referencias'}
-        ]
-      },
-      {
-        id:'ocr', title:'Escanear matrícula con cámara',
-        content: [
-          {type:'p', text:'Al lado del campo Matrícula hay un botón 📸. Pulsalo para abrir la cámara y reconocer la matrícula automáticamente.'},
-          {type:'list', items:[
-            'Motor por defecto: Tesseract (local, sin internet, gratis)',
-            'Opcional Gemini (Google AI, gratis con API key)',
-            'Opcional OCR.space (de pago)'
-          ]},
-          {type:'highlight', text:'⚠ El navegador pedirá permiso para usar la cámara. Si lo deniegas, deberás activarlo en ajustes del sitio.'}
-        ]
-      },
-      {
-        id:'historial', title:'Historial e Incidencias',
-        content: [
-          {type:'p', text:'En cada fila de Referencias hay un botón 📋. Te muestra:'},
-          {type:'list', items:[
-            'Historial de cambios del registro (quién y cuándo lo editó)',
-            'Incidencias registradas (cambio de camión, conductor, fecha, etc.)',
-            'Botón para registrar una nueva incidencia con motivo'
-          ]},
-          {type:'highlight', text:'📊 Todo queda en auditoría — útil para reclamaciones o investigaciones.'}
-        ]
-      }
+    id:'referencias', iconName:'referencias', color:'#F59E0B', title:'Referencias (Prerregistros)',
+    descripcion:'Gestión de vehículos prerregistrados para el evento.',
+    pasos:[
+      { titulo:'¿Qué es una Referencia?', contenido:'Una Referencia es el prerregistro de un vehículo para acceder al recinto. Contiene:\n• Matrícula principal y secundaria\n• Datos del conductor y empresa\n• Destino (hall, stand, expositor)\n• Estado de seguimiento\n• Posición en cola\n\nSe crea antes del evento para agilizar la entrada.' },
+      { titulo:'Crear una referencia', contenido:'1. Haz clic en "Nueva Referencia"\n2. Introduce la matrícula (obligatorio)\n3. Selecciona el evento\n4. Asigna hall y stand\n5. Añade datos del conductor\n6. Guarda — el estado inicial es "prerregistrado"\n\n💡 Si el conductor ya existe, sus datos se autocompletan al introducir la matrícula.' },
+      { titulo:'Cambiar estados', contenido:'Estados disponibles:\n\nPrerregistrado → En camino → Rampa/Parking → Dentro Fira → Salida\n\nCambia desde el botón en la tabla o desde la Vista Rampa. Cada cambio registra la hora automáticamente.' }
     ]
   },
   {
-    id:'agenda', title:'Agenda y Planificación', icon:'📅',
-    lessons: [
-      {
-        id:'agenda_uso', title:'Planificar citas',
-        content: [
-          {type:'p', text:'En Agenda puedes planificar la llegada de vehículos antes de que ocurra. Cuando uno llega, marcas "Llegado" y se calcula la diferencia entre hora prevista vs real.'},
-          {type:'list', items:[
-            'Hora planificada vs hora real → ves desfases en minutos',
-            'Filtros por estado (planificado, llegado, finalizado)',
-            'Al absorber una agenda desde Referencias, queda marcada como llegado'
-          ]},
-          {type:'action', label:'Abrir Agenda', target:'agenda'}
-        ]
-      }
+    id:'ingresos', iconName:'ingresos', color:'#16A34A', title:'Ingresos directos',
+    descripcion:'Registro rápido de vehículos sin prerregistro previo.',
+    pasos:[
+      { titulo:'¿Cuándo usar Ingresos?', contenido:'Para vehículos que llegan sin prerregistro:\n\n• Vehículos de servicio inesperados\n• Reparaciones de último momento\n• Visitas no planificadas\n• Situaciones de emergencia\n\nA diferencia de Referencias, el ingreso es inmediato.' },
+      { titulo:'Proceso de entrada', contenido:'1. Introduce la matrícula → el sistema busca al conductor\n2. Completa o verifica los datos\n3. Asigna destino (hall, stand)\n4. Estado inicial: "dentro"\n5. Para registrar salida: cambia a "salida"\n\nLa hora de entrada se registra automáticamente.' }
     ]
   },
   {
-    id:'maestros', title:'Bases maestras', icon:'📚',
-    lessons: [
-      {
-        id:'empresas', title:'Empresas y Preregistros',
-        content: [
-          {type:'p', text:'En Empresas tienes dos sub-pestañas:'},
-          {type:'list', items:[
-            'Empresas → base de empresas con CIF, contacto y nivel (estándar/verificada/bloqueada)',
-            'Preregistros → empresas que se registraron por el portal público y esperan aprobación'
-          ]},
-          {type:'highlight', text:'⚠ Si marcas una empresa como BLOQUEADA, no podrá registrar accesos ni imprimir pases.'},
-          {type:'action', label:'Abrir Empresas', target:'empresas'}
-        ]
-      },
-      {
-        id:'conductores', title:'Conductores',
-        content: [
-          {type:'p', text:'Base de conductores con DNI, teléfono, idiomas y matrículas habituales.'},
-          {type:'highlight', text:'🌍 Los idiomas se usan para imprimir el pase en el idioma del conductor automáticamente.'},
-          {type:'action', label:'Abrir Conductores', target:'conductores'}
-        ]
-      },
-      {
-        id:'flota', title:'Flota',
-        content: [
-          {type:'p', text:'Base de vehículos asociados a empresas. Incluye:'},
-          {type:'list', items:[
-            'Matrícula y remolque',
-            'Marca, modelo, tipo (camión, trailer, furgoneta)',
-            'Tipo de carga (refrigerada, peligrosa, etc.)',
-            'Estado (almacén / en ruta)',
-            'Nº tacógrafo'
-          ]},
-          {type:'action', label:'Abrir Flota', target:'flota'}
-        ]
-      }
+    id:'bookings', iconName:'agenda', color:'#6366F1', title:'Bookings & Agenda',
+    descripcion:'Sistema de reservas con historial completo.',
+    pasos:[
+      { titulo:'¿Qué es un Booking?', contenido:'Un Booking es una reserva de acceso con trazabilidad completa:\n\n• Asociado a empresa y evento específico\n• Tiene fecha y hora planificada\n• TODA modificación queda registrada en el historial\n• Se puede convertir a Referencia con un clic\n\nIdeal para operaciones planificadas con antelación.' },
+      { titulo:'Vista calendario semanal', contenido:'Cambia a vista calendario para ver:\n• Distribución horaria de citas\n• Día actual resaltado\n• Bloques coloreados por estado\n• Click en evento para editar\n\nIdeal para coordinación logística.' },
+      { titulo:'Requisitos y gastos', contenido:'Cada cita puede tener:\n\n✓ Checklist de requisitos (papeles, ITV, seguro, tacógrafo, CMR)\n💰 Gastos asociados (peaje, dieta, combustible, descarga, aparcamiento)\n\nÚtil para logísticas pequeñas que necesitan control de costes operativos por viaje.' }
     ]
   },
   {
-    id:'impresion', title:'Motor de Impresión', icon:'🖨',
-    lessons: [
-      {
-        id:'imp_intro', title:'Crear tu primera plantilla',
-        content: [
-          {type:'p', text:'El motor de impresión te permite diseñar el pase visualmente. Tres columnas:'},
-          {type:'list', items:[
-            'Izquierda: lista de registros (demo o reales)',
-            'Centro: canvas donde arrastras los campos',
-            'Derecha: tabs Campos/Editar/Config'
-          ]},
-          {type:'highlight', text:'🏭 Vienen 3 plantillas de fábrica para empezar: Pase básico, Pase camión grande, Etiqueta troquel.'},
-          {type:'action', label:'Abrir Impresión', target:'impresion'}
-        ]
-      },
-      {
-        id:'imp_drag', title:'Diseñar el pase',
-        content: [
-          {type:'p', text:'Arrastra campos desde la columna derecha al canvas:'},
-          {type:'list', items:[
-            'Matrícula, conductor, empresa, posición, hall, stand…',
-            'QR, código de barras, código de seguridad',
-            'Logo empresa, datos del recinto, marca de agua'
-          ]},
-          {type:'highlight', text:'🎯 Snap-to-grid activado por defecto. Los campos se alinean a una rejilla de 5%.'}
-        ]
-      },
-      {
-        id:'imp_editar', title:'Editar campos',
-        content: [
-          {type:'p', text:'Click en un campo del canvas para editarlo. Puedes cambiar:'},
-          {type:'list', items:[
-            'Tamaño de fuente (8-120px)',
-            'Negrita y resaltado ámbar',
-            'Color de texto (selector completo)',
-            'Rotación: 0°, 90°, 180°, 270°',
-            'Posición X/Y exacta en porcentaje',
-            'Condición: mostrar solo si... (ej: solo si nivel=verificada)'
-          ]}
-        ]
-      },
-      {
-        id:'imp_config', title:'Configuración avanzada',
-        content: [
-          {type:'p', text:'En la pestaña Config tienes:'},
-          {type:'list', items:[
-            'Tamaño papel (A4/A5/A6/sticker) y orientación',
-            'Múltiples pases por hoja (1/2/4) para ahorrar papel',
-            'Modo troquel con línea de corte (no se imprime)',
-            'Marca de agua personalizable (COPIA/ORIGINAL/etc.)',
-            'Caducidad del pase en horas',
-            'Auto-selección de plantilla por tipo de vehículo',
-            'Imagen de fondo guía (no se imprime, solo diseño)'
-          ]}
-        ]
-      },
-      {
-        id:'imp_batch', title:'Imprimir batch',
-        content: [
-          {type:'p', text:'Puedes imprimir TODOS los registros del evento con un solo click usando el botón "🖨 Batch":'},
-          {type:'list', items:[
-            'Genera N páginas, una por registro',
-            'Salta automáticamente empresas bloqueadas',
-            'Te muestra cuántos se imprimieron y cuántos se saltaron'
-          ]}
-        ]
-      },
-      {
-        id:'imp_export', title:'Exportar/Importar plantillas',
-        content: [
-          {type:'p', text:'Las plantillas se pueden:'},
-          {type:'list', items:[
-            'Guardar en Firebase por evento (📤 Guardar)',
-            'Exportar como JSON para compartir con otros (📤)',
-            'Importar desde JSON de otro proyecto (📥)'
-          ]},
-          {type:'highlight', text:'💡 Esto te permite tener plantillas tipo y reutilizarlas entre eventos.'}
-        ]
-      }
+    id:'preregistro', iconName:'shield', color:'#0891B2', title:'Prerregistro Público + RGPD',
+    descripcion:'Formulario público con consentimiento RGPD legalmente válido.',
+    pasos:[
+      { titulo:'Formulario público', contenido:'BeUnifyT genera un enlace público único por evento:\n\nURL: /preregistro?evento=ID_DEL_EVENTO\n\nLas empresas pueden prerregistrarse desde:\n• Sus dispositivos móviles\n• Ordenador de oficina\n• Sin necesidad de cuenta en el sistema' },
+      { titulo:'Proceso de consentimiento RGPD', contenido:'El formulario incluye 3 pasos legalmente válidos:\n\n1️⃣ DATOS: Información del vehículo, conductor y empresa\n2️⃣ RGPD: Texto completo del tratamiento + 4 consentimientos específicos (finalidad, derechos, conservación, veracidad)\n3️⃣ FIRMA DIGITAL: Canvas de firma manuscrita\n\nEl sistema registra fecha/hora exacta, IP del dispositivo y firma digital — conforme al Art. 7 RGPD (UE) 2016/679.' },
+      { titulo:'Base legal y cumplimiento', contenido:'La base legal del tratamiento es doble:\n\n📋 Art. 6.1.b RGPD: Ejecución de contrato (acceso al recinto como parte del contrato de exposición)\n📋 Art. 6.1.c RGPD: Cumplimiento de obligación legal (control de acceso exigido por normativa de seguridad)\n\nLos datos se conservan 5 años por obligaciones legales y fiscales.\n\nLa AEPD es la autoridad de control en España.' }
     ]
   },
   {
-    id:'usuarios', title:'Usuarios y Permisos', icon:'👥',
-    lessons: [
-      {
-        id:'roles', title:'Los 6 roles',
-        content: [
-          {type:'p', text:'BeUnifyT tiene 6 roles preconfigurados:'},
-          {type:'list', items:[
-            'Administrador: acceso total + matriz permisos',
-            'Supervisor: 12 módulos, puede crear/editar/eliminar',
-            'Controlador Rampa: foco operativo (refs, ingresos, agenda)',
-            'Operario: solo crear/editar, no eliminar',
-            'Visor: solo lectura',
-            'Usuario: solo dashboard + mensajes'
-          ]},
-          {type:'highlight', text:'⚙ Solo el admin puede cambiar roles y permisos.'}
-        ]
-      },
-      {
-        id:'invitar', title:'Invitar a un usuario nuevo',
-        content: [
-          {type:'p', text:'Como admin, ve a Usuarios → Crear invitación. Pones el email + rol. El sistema genera un código de 6 caracteres válido 7 días.'},
-          {type:'p', text:'Compartes el link con el invitado. Cuando se registra con ese link, queda automáticamente con el rol y estado activo.'}
-        ]
-      }
+    id:'portal_empresas', iconName:'empresas', color:'#9333EA', title:'Portal de Empresas',
+    descripcion:'Registro y verificación de empresas con CIF/VAT por país.',
+    pasos:[
+      { titulo:'Verificación de empresas', contenido:'El Portal permite verificar la autenticidad:\n\n1. La empresa se registra con su CIF/NIF/VAT\n2. El sistema verifica via VIES (UE) automáticamente\n3. El admin puede marcar como "Verificada" o "Bloqueada"\n4. Solo verificadas pueden acceder al recinto\n\nFuentes oficiales:\n• España: AEAT\n• UE: VIES (ec.europa.eu/vies)\n• UK: Companies House' },
+      { titulo:'Match B2B', contenido:'Cuando se crea un usuario con role=empresa:\n\n• Se vincula a la empresa por empresaId o email\n• Solo ve sus propias referencias e ingresos\n• Estado en tiempo real de sus vehículos\n• No ve datos de otras empresas\n\nIgual que el monolito original — separación estricta.' }
     ]
   },
   {
-    id:'avanzado', title:'Características avanzadas', icon:'⚡',
-    lessons: [
-      {
-        id:'panel_logs', title:'Panel de logs',
-        content: [
-          {type:'p', text:'Pulsa Ctrl+Shift+L (Cmd+Shift+L en Mac) para abrir el panel inferior con todos los eventos del sistema.'},
-          {type:'list', items:[
-            'Niveles: DEBUG / INFO / OK / WARN / ERROR / FATAL',
-            'Cada error trae archivo, línea y función',
-            'Botón Exportar para enviar JSON al admin'
-          ]},
-          {type:'highlight', text:'💡 Si algo no funciona, abre este panel y exporta el JSON.'}
-        ]
-      },
-      {
-        id:'papelera', title:'Papelera con restauración',
-        content: [
-          {type:'p', text:'Cuando borras algo, NO se elimina permanente. Va a la Papelera. Desde allí puedes:'},
-          {type:'list', items:[
-            'Restaurar el registro a su estado original',
-            'Eliminar permanentemente (con confirmación)',
-            'Ver quién lo borró y cuándo'
-          ]},
-          {type:'action', label:'Abrir Papelera', target:'papelera'}
-        ]
-      },
-      {
-        id:'excel', title:'Importar/Exportar Excel',
-        content: [
-          {type:'p', text:'En referencias, ingresos, agenda, flota, conductores y empresas tienes 3 botones:'},
-          {type:'list', items:[
-            '📤 Exportar: descarga un .xlsx con todos los registros',
-            '📋 Plantilla: descarga un .xlsx vacío con cabeceras + ejemplo',
-            '📥 Importar: lee un .xlsx y crea registros con detección de duplicados'
-          ]}
-        ]
-      },
-      {
-        id:'tutorial', title:'Has terminado el curso',
-        content: [
-          {type:'h', text:'🎉 ¡Felicidades!'},
-          {type:'p', text:'Ya conoces todas las funciones principales de BeUnifyT. Puedes volver aquí cuando quieras para repasar.'},
-          {type:'highlight', text:'💬 Si tienes dudas o necesitas ayuda, contacta al administrador.'}
-        ]
-      }
+    id:'impresion', iconName:'impresion', color:'#EC4899', title:'Motor de Impresión',
+    descripcion:'Sistema de diseño y generación de pases vehiculares.',
+    pasos:[
+      { titulo:'Diseño de pases', contenido:'Diseña pases físicos paso a paso:\n\n1. Arrastra campos al canvas (matrícula, hall, stand, conductor)\n2. Ajusta posición, tamaño, color, formato\n3. Selecciona papel (A3/A4/A5/A6/Sticker/Troquel)\n4. Selecciona idioma del PASE (es del conductor, no del usuario)\n5. Carga imagen guía de fondo (no se imprime)\n6. Guarda la plantilla' },
+      { titulo:'Funciones tipo Word', contenido:'Edición avanzada de texto en cada campo:\n• Negrita, cursiva, subrayado, tachado\n• Alineación izq/centro/der/justificado\n• Sub/super-índice\n• Interlineado y espaciado de letras\n• Color personalizado\n• Rotación 0/90/180/270\n\nAtajos: Alt+drag duplica · Ctrl+wheel escala · Shift+click selección múltiple.' },
+      { titulo:'Idioma del pase', contenido:'CLAVE: El pase se imprime en el idioma del CONDUCTOR, no del usuario operario.\n\n• El usuario español ve la interfaz en español\n• Pero si el conductor es rumano, el pase imprime en rumano\n• Plantillas {tr:welcomeMsg} se traducen automáticamente\n\nVariables disponibles: {plate} {hall} {stand} {driver} {company} {event} {position} {time}' },
+      { titulo:'Imagen guía + corrector trapezoidal', contenido:'En la pestaña "Guía":\n\n• Carga foto del pase real\n• Modos: Mover / Rotar / Perspectiva\n• Arrastra esquinas para corregir trapezoide\n• Sliders de precisión para ajuste fino\n\nIdeal para alinear los campos exactamente sobre el diseño físico existente.' }
+    ]
+  },
+  {
+    id:'rampa', iconName:'rampa', color:'#CA8A04', title:'Vista Rampa',
+    descripcion:'Modo operario simplificado para puerta de acceso.',
+    pasos:[
+      { titulo:'Modo operario', contenido:'Vista diseñada para tablets/móviles en puerta:\n\n• Fondo oscuro para lectura al sol\n• Búsqueda gigante (matrícula, empresa, conductor)\n• Stats en tiempo real: rampa / dentro / en camino\n• Un solo botón para cambiar estado\n\nPuede ponerse como favorito en el tablet del operario.' }
+    ]
+  },
+  {
+    id:'analytics', iconName:'analytics', color:'#06B6D4', title:'Analytics',
+    descripcion:'Informes y visualización de datos operativos.',
+    pasos:[
+      { titulo:'Métricas disponibles', contenido:'📊 Actividad de los últimos 7 días\n🏢 Halls más activos\n🚛 Distribución por tipo vehículo\n⏱ Estancia media en recinto\n📋 Tabla cruzada Refs vs Ingresos por evento\n📈 Tendencias 3 últimos días vs 3 anteriores\n\nFiltros por evento. Todos los gráficos interactivos.' }
+    ]
+  },
+  {
+    id:'incidencias', iconName:'warn', color:'#DC2626', title:'Incidencias',
+    descripcion:'Gestión de problemas operativos con trazabilidad.',
+    pasos:[
+      { titulo:'Registro de incidencias', contenido:'Registra cualquier problema con:\n• Prioridad (baja/media/alta/crítica)\n• Responsable asignado\n• Progreso: Abierta → En proceso → Resuelta → Cerrada\n• Resolución adoptada\n• Historial completo de cambios\n\nTipos: bloqueo, accidente, carga incorrecta, documentación, otro.' }
+    ]
+  },
+  {
+    id:'turnos', iconName:'calendar', color:'#10B981', title:'Turnos y Fichaje',
+    descripcion:'Control de presencia del personal operativo.',
+    pasos:[
+      { titulo:'Gestión de turnos', contenido:'• Programa turnos por día, puerta y evento\n• Fichaje entrada/salida con hora real\n• Ver quién está activo en este momento\n• Control de ausencias\n• Cálculo de horas trabajadas\n\nIdeal para saber cuánto personal hay en cada puerta y calcular costes operativos.' }
     ]
   }
 ];
 
 export async function init(container){
   _container = container;
-  // Cargar progreso
-  const progress = loadProgress();
-  if(progress){
-    _activeChapter = progress.chapter || 0;
-    _activeLesson = progress.lesson || 0;
-  }
+  _selectedModule = null;
+  _currentStep = 0;
   render();
 }
 
-export function destroy(){
-  unregisterListenersByPrefix(KEY_PREFIX);
-  saveProgress();
-  _container = null;
-}
+export function destroy(){ _container = null; }
 
-function loadProgress(){
-  const p = getCurrentProfile();
-  try{
-    const raw = localStorage.getItem(PROGRESS_KEY + '_' + (p?.id || 'anon'));
-    return raw ? JSON.parse(raw) : null;
-  } catch(_){return null;}
+function getCompleted(){
+  try{ return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch{ return []; }
 }
-
-function saveProgress(){
-  const p = getCurrentProfile();
-  try{
-    localStorage.setItem(PROGRESS_KEY + '_' + (p?.id || 'anon'), JSON.stringify({
-      chapter: _activeChapter, lesson: _activeLesson,
-      completed: getCompletedLessons()
-    }));
-  } catch(_){}
+function setCompleted(arr){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
 }
-
-function getCompletedLessons(){
-  // Considera completadas todas las lecciones anteriores a la actual
-  let count = 0;
-  for(let c = 0; c < _activeChapter; c++){
-    count += CURSO[c].lessons.length;
-  }
-  return count + _activeLesson;
-}
-
-function totalLessons(){
-  return CURSO.reduce((sum, c) => sum + c.lessons.length, 0);
+function markComplete(modId){
+  const arr = getCompleted();
+  if(!arr.includes(modId)) arr.push(modId);
+  setCompleted(arr);
 }
 
 function render(){
   if(!_container) return;
   clear(_container);
 
-  const total = totalLessons();
-  const done = getCompletedLessons();
-  const pct = total ? Math.round((done / total) * 100) : 0;
+  if(_selectedModule){
+    renderModuleDetail();
+  } else {
+    renderModuleList();
+  }
+}
+
+function renderModuleList(){
+  const completed = getCompleted();
+  const progress = Math.round((completed.length / MODULOS.length) * 100);
 
   _container.appendChild(pageHeader({
-    title:'🎓 Curso interactivo BeUnifyT',
-    sub: `Progreso: ${done}/${total} lecciones · ${pct}%`
+    title:'📚 Curso interactivo BeUnifyT',
+    sub:'Aprende a usar cada módulo de la plataforma paso a paso'
   }));
 
-  // Barra progreso
-  const bar = el('div', {style:{
-    height:'6px', background:'var(--surface-2)',
-    borderRadius:'3px', marginBottom:'24px', overflow:'hidden'
-  }},
-    el('div', {style:{
-      height:'100%', width: pct+'%',
-      background:'var(--primary)', transition:'width 0.3s'
-    }})
-  );
-  _container.appendChild(bar);
+  // Barra de progreso global
+  const progressCard = el('div', { class:'curso-progress' });
+  progressCard.appendChild(el('div', { class:'curso-progress-head' },
+    el('span', { class:'curso-progress-label' }, 'Tu progreso'),
+    el('span', { class:'curso-progress-count' }, `${completed.length}/${MODULOS.length} módulos`)
+  ));
+  progressCard.appendChild(el('div', { class:'curso-progress-bar' },
+    el('div', { class:'curso-progress-fill', style:{ width: progress + '%' } })
+  ));
+  progressCard.appendChild(el('div', { class:'curso-progress-pct' }, `${progress}% completado`));
+  _container.appendChild(progressCard);
 
-  // Layout 2 columnas: índice + contenido
-  const layout = el('div', {style:{
-    display:'grid', gridTemplateColumns:'280px 1fr', gap:'24px',
-    minHeight:'500px'
-  }});
-  layout.appendChild(renderIndex());
-  layout.appendChild(renderContent());
-  _container.appendChild(layout);
-}
-
-function renderIndex(){
-  const wrap = el('div', {class:'panel', style:{padding:'12px', height:'fit-content'}});
-  wrap.appendChild(el('h3', {style:{margin:'0 0 12px', fontSize:'14px', textTransform:'uppercase', color:'var(--text-3)'}}, 'Capítulos'));
-
-  CURSO.forEach((cap, ci) => {
-    const isActiveCap = ci === _activeChapter;
-    const capWrap = el('div', {style:{marginBottom:'8px'}});
-    capWrap.appendChild(el('div', {
-      class:'sb-item',
-      style:{
-        cursor:'pointer', padding:'8px 10px',
-        background: isActiveCap ? 'var(--primary-soft)' : 'transparent',
-        color: isActiveCap ? 'var(--primary)' : 'var(--text-2)',
-        borderRadius:'8px', fontSize:'13px', fontWeight:'500',
-        display:'flex', alignItems:'center', gap:'8px'
-      },
-      onclick: () => {
-        _activeChapter = ci;
-        _activeLesson = 0;
-        render();
-      }
+  // Grid de módulos
+  const grid = el('div', { class:'curso-grid' });
+  for(const mod of MODULOS){
+    const done = completed.includes(mod.id);
+    grid.appendChild(el('div', {
+      class:`curso-card ${done ? 'done' : ''}`,
+      onclick: () => { _selectedModule = mod; _currentStep = 0; render(); }
     },
-      el('span', {style:{fontSize:'16px'}}, cap.icon),
-      el('span', {}, cap.title)
+      el('div', { class:'curso-card-head' },
+        el('div', { class:'curso-card-ico', style:{ background: mod.color }, html: icon(mod.iconName) }),
+        done
+          ? el('span', { class:'curso-badge-done' }, '✓ Completado')
+          : el('span', { class:'curso-badge-pasos' }, `${mod.pasos.length} pasos`)
+      ),
+      el('div', { class:'curso-card-title' }, mod.title),
+      el('div', { class:'curso-card-desc' }, mod.descripcion),
+      el('div', { class:'curso-card-action' },
+        el('span', {}, '▶'),
+        el('span', {}, done ? 'Repasar' : 'Iniciar')
+      )
     ));
+  }
+  _container.appendChild(grid);
 
-    if(isActiveCap){
-      cap.lessons.forEach((l, li) => {
-        const isActiveLesson = li === _activeLesson;
-        capWrap.appendChild(el('div', {
-          style:{
-            padding:'6px 10px 6px 30px',
-            cursor:'pointer', fontSize:'12px',
-            color: isActiveLesson ? 'var(--primary)' : 'var(--text-3)',
-            background: isActiveLesson ? 'var(--surface-2)' : 'transparent',
-            borderRadius:'6px', marginTop:'2px'
-          },
-          onclick: () => {
-            _activeLesson = li;
-            render();
-            saveProgress();
-          }
-        }, `${li+1}. ${l.title}`));
-      });
-    }
-  });
-
-  // Reiniciar progreso
-  wrap.appendChild(el('button', {
-    class:'btn btn-ghost btn-sm w-full',
-    style:{marginTop:'12px', fontSize:'11px'},
-    onclick: () => {
-      _activeChapter = 0; _activeLesson = 0;
-      saveProgress();
-      render();
-      toast('Curso reiniciado', 'ok');
-    }
-  }, '↻ Reiniciar curso'));
-
-  return wrap;
+  if(completed.length === MODULOS.length){
+    _container.appendChild(el('div', { class:'curso-finish' },
+      el('div', { class:'curso-finish-ico' }, '🎉'),
+      el('h3', {}, '¡Curso completado!'),
+      el('p', {}, 'Has revisado todos los módulos de BeUnifyT. Ya eres un experto en la plataforma.')
+    ));
+  }
 }
 
-function renderContent(){
-  const wrap = el('div', {class:'panel', style:{padding:'24px', display:'flex', flexDirection:'column'}});
-  const cap = CURSO[_activeChapter];
-  if(!cap){return wrap;}
-  const lesson = cap.lessons[_activeLesson];
-  if(!lesson){return wrap;}
+function renderModuleDetail(){
+  const mod = _selectedModule;
+  const paso = mod.pasos[_currentStep];
+  const isLast = _currentStep === mod.pasos.length - 1;
+  const isFirst = _currentStep === 0;
 
-  // Breadcrumb
-  wrap.appendChild(el('div', {class:'cell-mute', style:{fontSize:'12px', marginBottom:'8px'}},
-    `${cap.icon} ${cap.title} → Lección ${_activeLesson + 1}`));
+  // Header
+  _container.appendChild(el('button', {
+    class:'curso-back',
+    onclick: () => { _selectedModule = null; _currentStep = 0; render(); }
+  }, '← Volver al curso'));
 
-  wrap.appendChild(el('h2', {style:{margin:'0 0 18px', fontSize:'22px', fontWeight:'700'}}, lesson.title));
+  // Cabecera del módulo
+  _container.appendChild(el('div', {
+    class:'curso-mod-header',
+    style:{ background: mod.color }
+  },
+    el('div', { class:'curso-mod-header-top' },
+      el('div', { class:'curso-mod-header-ico', html: icon(mod.iconName) }),
+      el('div', {},
+        el('h2', {}, mod.title),
+        el('p', {}, mod.descripcion)
+      )
+    ),
+    // Barra de pasos
+    el('div', { class:'curso-steps-bar' },
+      ...mod.pasos.map((_, i) =>
+        el('div', { class:`curso-step-dot ${i <= _currentStep ? 'on' : ''}` })
+      ),
+      el('span', { class:'curso-step-count' }, `${_currentStep + 1}/${mod.pasos.length}`)
+    )
+  ));
 
-  // Contenido
-  const body = el('div', {style:{flex:1}});
-  for(const block of lesson.content){
-    if(block.type === 'h'){
-      body.appendChild(el('h3', {style:{fontSize:'18px', margin:'14px 0 8px'}}, block.text));
-    } else if(block.type === 'p'){
-      body.appendChild(el('p', {style:{fontSize:'14px', lineHeight:'1.7', color:'var(--text-2)', margin:'0 0 12px'}}, block.text));
-    } else if(block.type === 'list'){
-      const ul = el('ul', {style:{margin:'0 0 12px', paddingLeft:'20px'}});
-      for(const item of block.items){
-        ul.appendChild(el('li', {style:{fontSize:'14px', lineHeight:'1.7', color:'var(--text-2)', marginBottom:'4px'}}, item));
-      }
-      body.appendChild(ul);
-    } else if(block.type === 'highlight'){
-      body.appendChild(el('div', {
-        style:{
-          padding:'12px 16px',
-          background:'var(--primary-soft)',
-          color:'var(--primary-soft-text)',
-          borderLeft:'4px solid var(--primary)',
-          borderRadius:'0 8px 8px 0',
-          margin:'12px 0', fontSize:'14px'
-        }
-      }, block.text));
-    } else if(block.type === 'action'){
-      body.appendChild(el('button', {
-        class:'btn btn-secondary btn-sm',
-        style:{margin:'8px 8px 0 0'},
-        onclick: () => {
-          if(block.target) navigate(block.target);
-        }
-      }, `→ ${block.label}`));
-    }
-  }
-  wrap.appendChild(body);
+  // Contenido del paso
+  _container.appendChild(el('div', { class:'curso-step-content' },
+    el('h3', {}, paso.titulo),
+    el('div', { class:'curso-step-text' }, paso.contenido)
+  ));
 
-  // Navegación lecciones
-  const nav = el('div', {style:{display:'flex', gap:'8px', marginTop:'24px', paddingTop:'16px', borderTop:'1px solid var(--border)'}});
-
-  const canPrev = !(_activeChapter === 0 && _activeLesson === 0);
-  const canNext = !(_activeChapter === CURSO.length - 1 && _activeLesson === cap.lessons.length - 1);
-
-  if(canPrev){
-    nav.appendChild(el('button', {
+  // Navegación
+  _container.appendChild(el('div', { class:'curso-nav' },
+    el('button', {
       class:'btn btn-secondary',
-      onclick: () => {
-        if(_activeLesson > 0){
-          _activeLesson--;
-        } else {
-          _activeChapter--;
-          _activeLesson = CURSO[_activeChapter].lessons.length - 1;
-        }
-        saveProgress();
-        render();
-      }
-    }, '← Anterior'));
-  }
-
-  nav.appendChild(el('div', {class:'flex-1'}));
-
-  if(canNext){
-    nav.appendChild(el('button', {
-      class:'btn btn-primary',
-      onclick: () => {
-        if(_activeLesson < cap.lessons.length - 1){
-          _activeLesson++;
-        } else {
-          _activeChapter++;
-          _activeLesson = 0;
-        }
-        saveProgress();
-        render();
-      }
-    }, 'Siguiente →'));
-  } else {
-    nav.appendChild(el('button', {
-      class:'btn btn-primary',
-      onclick: () => {
-        toast('🎉 ¡Curso completado!', 'ok', 4000);
-        saveProgress();
-      }
-    }, '🏆 Completar curso'));
-  }
-
-  wrap.appendChild(nav);
-  return wrap;
+      disabled: isFirst ? 'disabled' : null,
+      onclick: () => { if(!isFirst){ _currentStep--; render(); } }
+    }, '← Anterior'),
+    isLast
+      ? el('button', {
+          class:'btn btn-success',
+          onclick: () => {
+            markComplete(mod.id);
+            _selectedModule = null;
+            _currentStep = 0;
+            toast(`✓ Módulo "${mod.title}" completado`, 'ok');
+            render();
+          }
+        }, '✓ Completar módulo')
+      : el('button', {
+          class:'btn btn-primary',
+          onclick: () => { _currentStep++; render(); }
+        }, 'Siguiente →')
+  ));
 }

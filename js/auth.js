@@ -14,6 +14,10 @@ import { startPermsListener, stopPermsListener } from './roles.js';
 import { cleanupAllListeners, registerListener } from './db.js';
 import { normalizeEmail, $, el, setText, toast, log, logErr, logger } from './utils.js';
 import { tr, getLang, setLang } from './i18n.js';
+import { checkLoginLock, recordLoginFailure, clearLoginFailures, registerDeviceForUser, logAccess, getDeviceFingerprint, getDeviceLabel } from './security.js';
+
+const MAX_FAIL_ATTEMPTS = 5;
+const LOCK_MIN = 15;
 
 let currentUser = null;
 let currentProfile = null;
@@ -124,10 +128,28 @@ async function loginWithGoogle(inviteCode=null){
 
 async function loginWithEmail(email, password){
   showError('');
+  // Comprobar bloqueo
+  const lockState = checkLoginLock(email);
+  if(lockState.locked){
+    showError(`Cuenta bloqueada por intentos fallidos. Intenta de nuevo en ${lockState.remainingMinutes} min.`);
+    return;
+  }
   try{
     await signInWithEmailAndPassword(auth, email, password);
+    clearLoginFailures(email);
+    // El log de acceso lo hace onAuthStateChanged
   } catch(e){
-    showError(translateAuthError(e));
+    const failState = recordLoginFailure(email);
+    const remaining = MAX_FAIL_ATTEMPTS - failState.attempts;
+    let msg = translateAuthError(e);
+    if(failState.lockedUntil){
+      msg = `Cuenta bloqueada ${LOCK_MIN} min por ${MAX_FAIL_ATTEMPTS} intentos fallidos.`;
+    } else if(remaining <= 2 && remaining > 0){
+      msg += ` · ${remaining} intento${remaining === 1 ? '' : 's'} restante${remaining === 1 ? '' : 's'}.`;
+    }
+    showError(msg);
+    // Registrar fallo en audit (sin uid)
+    try{ logAccess({ email, success:false }); } catch(_){}
   }
 }
 
@@ -290,6 +312,30 @@ onAuthStateChanged(auth, async (fbUser) => {
     currentProfile = profile;
 
     if(profile.lang) setLang(profile.lang);
+
+    // Registrar dispositivo + log de acceso
+    try{
+      // SuperAdmin (rol "admin") obliga aprobación de dispositivos nuevos en otros usuarios.
+      // Para el admin propio NO requerimos aprobación (siempre auto-aprobado).
+      const requiresApproval = profile.role !== 'admin' && profile.requireDeviceApproval !== false;
+      const devResult = await registerDeviceForUser(fbUser.uid, requiresApproval);
+      logAccess({
+        uid: fbUser.uid,
+        email: fbUser.email || profile.email,
+        success: true,
+        deviceFingerprint: getDeviceFingerprint(),
+        deviceLabel: getDeviceLabel()
+      });
+      if(devResult.isNew && devResult.requiresApproval){
+        toast('⚠ Dispositivo nuevo detectado · Esperando aprobación del administrador', 'warn', 8000);
+      } else if(devResult.isNew){
+        toast('🆕 Nuevo dispositivo registrado', 'info', 4000);
+      }
+      // Limpiar intentos fallidos (login exitoso)
+      if(fbUser.email) clearLoginFailures(fbUser.email);
+    } catch(e){
+      logger.warn('No se pudo registrar acceso/dispositivo', { error: e.message });
+    }
 
     if(inviteCode){
       const url = new URL(location.href);

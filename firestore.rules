@@ -215,7 +215,10 @@ service cloud.firestore {
     // ── auditoría (Bloque F+G) ──────────────────────────────
     match /audit/{id} {
       allow read:   if isAdmin();
-      allow create: if isActiveUser();
+      // Permitir crear logs de login SIN auth (para fallos pre-sesión)
+      allow create: if isActiveUser()
+                 || (request.resource.data.type == 'login'
+                     && request.resource.data.keys().hasOnly(['type','uid','email','success','deviceFingerprint','deviceLabel','userAgent','createdAt']));
       allow update: if false;
       allow delete: if isAdmin();
     }
@@ -223,6 +226,13 @@ service cloud.firestore {
       allow read:   if isAdmin();
       allow create: if isActiveUser();
       allow update: if false;
+      allow delete: if isAdmin();
+    }
+    // ── dispositivos (security.js) ─────────────────────────
+    match /devices/{id} {
+      allow read:   if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
       allow delete: if isAdmin();
     }
     match /incidencias/{id} {
@@ -248,6 +258,23 @@ service cloud.firestore {
       allow create: if canCreate();
       allow update: if canEdit();
       allow delete: if canDelete();
+    }
+
+    // ── turnos ──────────────────────────────────────────────
+    match /turnos/{id} {
+      allow read:   if isActiveUser();
+      allow create: if isActiveUser();
+      allow update: if isActiveUser();
+      allow delete: if isAdmin();
+    }
+
+    // ── chats con asistentes IA ─────────────────────────────
+    match /asistente_chats/{id} {
+      // Cada usuario solo accede a sus propios chats; admin a todos
+      allow read:   if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
     }
   }
 }

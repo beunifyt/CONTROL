@@ -54,24 +54,42 @@ function render(){
   }
 
   const cards = el('div', { class:'cards-grid' });
+  const profile = getCurrentProfile();
+  const favEventoId = profile?.favEventoId || null;
   for(const ev of _items){
     const recinto = _recintos.find(r => r.id === ev.recintoId);
-    const card = el('div', { class:'entity-card' },
+    const isActive = ev.estado === 'activo';
+    const isFav = ev.id === favEventoId;
+    const card = el('div', { class:`entity-card ${isFav ? 'is-fav' : ''}` },
       el('div', { class:'entity-card-head' },
         el('div', {},
-          el('h3', { class:'entity-card-title' }, ev.nombre || '—'),
+          el('h3', { class:'entity-card-title' },
+            isFav ? el('span', { title:'Evento favorito', style:{color:'#F59E0B', marginRight:'6px'} }, '★') : null,
+            ev.nombre || '—'
+          ),
           el('div', { class:'entity-card-sub' }, recinto?.nombre || '—')
         ),
-        el('span', { class:`badge badge-${ev.estado === 'activo' ? 'green' : ev.estado === 'planificado' ? 'blue' : ev.estado === 'finalizado' ? 'gray' : 'red'}` },
-          ev.estado === 'activo' ? 'Activo' :
-          ev.estado === 'planificado' ? 'Planificado' :
-          ev.estado === 'finalizado' ? 'Finalizado' : 'Cancelado')
+        // Toggle Activo/Inactivo clicable directo en la card
+        canEdit(p) ? el('span', {
+          class:`event-card-toggle ${isActive ? 'active' : 'inactive'}`,
+          title: isActive ? 'Click para desactivar' : 'Click para activar',
+          onclick: e => { e.stopPropagation(); toggleActivo(ev); }
+        },
+          el('span', {}, isActive ? '●' : '○'),
+          el('span', {}, isActive ? 'Activo' : ev.estado === 'finalizado' ? 'Finalizado' : ev.estado === 'cancelado' ? 'Cancelado' : 'Inactivo')
+        ) : el('span', { class:`badge badge-${isActive ? 'green' : 'gray'}` },
+          isActive ? 'Activo' : 'Inactivo')
       ),
       el('div', { class:'cell-mute' },
         ev.fechaInicio ? `${fmtDate(ev.fechaInicio)} → ${fmtDate(ev.fechaFin) || '—'}` : 'Sin fechas'),
       ev.previsionVehiculos ? el('div', { class:'cell-mute' }, `Previsión: ${ev.previsionVehiculos} vehículos`) : null,
       el('div', { class:'entity-card-foot' },
-        canEdit(p) ? el('button', { class:'btn btn-secondary btn-sm', onclick: () => toggleActivo(ev) }, ev.estado === 'activo' ? 'Desactivar' : 'Activar') : null,
+        // Botón favorito
+        el('button', {
+          class: `btn btn-sm ${isFav ? 'btn-primary' : 'btn-ghost'}`,
+          title: isFav ? 'Quitar de favorito' : 'Marcar como favorito (filtra por este evento por defecto)',
+          onclick: () => toggleFav(ev)
+        }, isFav ? '★ Favorito' : '☆ Marcar'),
         canEdit(p) ? el('button', { class:'btn btn-secondary btn-sm', onclick: () => openForm(ev) },
           el('span', { html: icon('edit') })
         ) : null,
@@ -83,6 +101,20 @@ function render(){
     cards.appendChild(card);
   }
   _container.appendChild(cards);
+}
+
+async function toggleFav(ev){
+  const profile = getCurrentProfile();
+  if(!profile) return;
+  try{
+    const newFav = profile.favEventoId === ev.id ? null : ev.id;
+    await update('users', profile.id, { favEventoId: newFav });
+    profile.favEventoId = newFav; // actualiza local
+    toast(newFav ? `★ ${ev.nombre} marcado como favorito` : 'Favorito quitado', 'ok');
+    render();
+  } catch(e){
+    toast('No se pudo actualizar favorito', 'err');
+  }
 }
 
 async function toggleActivo(ev){

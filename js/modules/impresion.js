@@ -10,6 +10,7 @@ import { canCreate, canEdit } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 import { appBaseUrl } from '../firebase-config.js';
 import { logger } from '../logger.js';
+import { tr, trIn, getLang } from '../i18n.js';
 
 let _container = null;
 const KEY_PREFIX = 'mod:impresion:';
@@ -397,7 +398,11 @@ function renderTopbar(){
     onclick: openPrintPreview
   }, '🔍 Previa'));
 
-  row2.appendChild(el('button', { class:'btn btn-secondary btn-sm', onclick: openBatchPrint }, '🖨 Batch'));
+  row2.appendChild(el('button', {
+    class:'btn btn-secondary btn-sm',
+    title:'Imprime un pase por cada registro del evento (saltando empresas bloqueadas). Útil al inicio del evento para imprimir todos los pases de una vez.',
+    onclick: openBatchPrint
+  }, '🖨 Batch'));
   row2.appendChild(el('button', { class:'btn btn-primary', onclick: doPrint }, '🖨 Imprimir'));
 
   wrap.appendChild(row2);
@@ -582,8 +587,14 @@ function renderCanvas(){
     }, _state.watermark.text));
   }
 
+  // Idioma del pase = idioma del conductor del registro actual
+  const recordsAll = getAllRecords();
+  const currentRecord = recordsAll.find(x => x.id === _state.selectedRecordId) || recordsAll[0];
+  const driverLang = getDriverLang(currentRecord);
+
   // Frase 1 (ámbar)
   if(_state.ph1On && _state.phrase1){
+    const txt = interpolatePhrase(_state.phrase1, currentRecord, driverLang);
     paper.appendChild(el('div', {
       style:{
         position:'absolute', left:'10%', right:'10%', top:'8mm',
@@ -592,18 +603,19 @@ function renderCanvas(){
         fontSize:'12px', fontWeight:'600', color:'#92400E',
         textAlign:'center', zIndex:'3'
       }
-    }, _state.phrase1));
+    }, txt));
   }
 
   // Frase 2 (pie borde negro)
   if(_state.ph2On && _state.phrase2){
+    const txt = interpolatePhrase(_state.phrase2, currentRecord, driverLang);
     paper.appendChild(el('div', {
       style:{
         position:'absolute', left:'10%', right:'10%', bottom:'6mm',
         border:'1.5px solid #000', padding:'5px 10px',
         fontSize:'10px', textAlign:'center', zIndex:'3'
       }
-    }, _state.phrase2));
+    }, txt));
   }
 
   // Guías de alineación al arrastrar
@@ -695,6 +707,30 @@ function handleAlignGuides(e, paper){
   }
 }
 
+// Construye el objeto de estilo de un campo combinando todas las
+// propiedades tipo Word (bold/italic/underline/strike/align/spacing/etc).
+function buildFieldStyle(conf, def, extra = {}){
+  const decorations = [];
+  if(conf.underline) decorations.push('underline');
+  if(conf.strike)    decorations.push('line-through');
+  const vAlign = conf.vAlign === 'super' ? 'super' : conf.vAlign === 'sub' ? 'sub' : 'baseline';
+  return {
+    left: conf.x + '%',
+    top: conf.y + '%',
+    fontSize: (conf.fontSize || def.defSize) + 'px',
+    fontWeight: conf.bold ? 'bold' : 'normal',
+    fontStyle: conf.italic ? 'italic' : 'normal',
+    textDecoration: decorations.length ? decorations.join(' ') : 'none',
+    color: conf.color || '#000',
+    textAlign: conf.textAlign || 'left',
+    lineHeight: String(conf.lineHeight ?? 1.2),
+    letterSpacing: (conf.letterSpacing ?? 0) + 'px',
+    verticalAlign: vAlign,
+    transform: conf.rotation ? `rotate(${conf.rotation}deg)` : '',
+    ...extra
+  };
+}
+
 function renderField(fid, conf, data){
   const def = FIELDS[fid];
   if(!def) return el('span', {});
@@ -713,16 +749,7 @@ function renderField(fid, conf, data){
   if(_state.clientMode){
     const view = el('div', {
       class: `canvas-field ${conf.highlight ? 'highlight' : ''}`,
-      style: {
-        left: conf.x + '%',
-        top: conf.y + '%',
-        fontSize: (conf.fontSize || def.defSize) + 'px',
-        fontWeight: conf.bold ? 'bold' : 'normal',
-        color: conf.color || '#000',
-        transform: conf.rotation ? `rotate(${conf.rotation}deg)` : '',
-        zIndex: String(zIdx),
-        pointerEvents:'none', cursor:'default'
-      }
+      style: buildFieldStyle(conf, def, { zIndex: String(zIdx), pointerEvents:'none', cursor:'default' })
     });
     if(fid === 'qr' || fid === 'barcode' || fid === 'logo' || fid === 'recintoLogo'){
       // mismo render que el bloque normal abajo (lo reutilizamos via continuación)
@@ -736,16 +763,7 @@ function renderField(fid, conf, data){
     class: `canvas-field ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${conf.highlight ? 'highlight' : ''}`,
     'data-pos': `${conf.x.toFixed(1)}, ${conf.y.toFixed(1)}`,
     'data-fid': fid,
-    style: {
-      left: conf.x + '%',
-      top: conf.y + '%',
-      fontSize: (conf.fontSize || def.defSize) + 'px',
-      fontWeight: conf.bold ? 'bold' : 'normal',
-      color: conf.color || '#000',
-      transform: conf.rotation ? `rotate(${conf.rotation}deg)` : '',
-      zIndex: String(zIdx),
-      touchAction:'none'
-    },
+    style: buildFieldStyle(conf, def, { zIndex: String(zIdx), touchAction:'none' }),
     // Ctrl+wheel: escalar
     onwheel: e => {
       if(!(e.ctrlKey || e.metaKey)) return;
@@ -900,11 +918,16 @@ function renderField(fid, conf, data){
       fontSize:'10px', color:'#6B7280'
     }}, 'LOGO'));
   } else {
-    // Modo etiqueta
+    // Modo etiqueta — el LABEL se traduce al idioma del conductor
+    const recordsAll2 = getAllRecords();
+    const r2 = recordsAll2.find(x => x.id === _state.selectedRecordId) || recordsAll2[0];
+    const dl = getDriverLang(r2);
+    const labelKey = def.i18nKey || null;
+    const labelText = labelKey ? trIn(dl, labelKey, def.label) : def.label;
     if(_state.labelMode === 'label'){
-      node.appendChild(el('span', { style:{ color:'#666', marginRight:'8px', fontSize:'70%' } }, def.label + ':'));
+      node.appendChild(el('span', { style:{ color:'#666', marginRight:'8px', fontSize:'70%' } }, labelText + ':'));
     } else if(_state.labelMode === 'linea'){
-      node.appendChild(el('span', { style:{ color:'#666', marginRight:'8px', fontSize:'70%' } }, def.label + ':'));
+      node.appendChild(el('span', { style:{ color:'#666', marginRight:'8px', fontSize:'70%' } }, labelText + ':'));
       node.appendChild(el('span', { style:{ borderBottom:'1px solid #000', minWidth:'80px', display:'inline-block' } }));
       return node;
     }
@@ -912,6 +935,48 @@ function renderField(fid, conf, data){
   }
 
   return node;
+}
+
+// Devuelve el idioma del conductor del registro actual (para frases del pase).
+// Si no hay conductor o no tiene idioma, usa el idioma del usuario operario.
+function getDriverLang(record){
+  if(record?.conductorLang) return record.conductorLang;
+  if(record?.lang) return record.lang;
+  // Buscar en la base de conductores
+  const conds = _state.conductores || [];
+  const c = conds.find(x =>
+    (x.nombre && record?.conductor && x.nombre === record.conductor) ||
+    (x.matriculas || []).includes(record?.matricula)
+  );
+  return c?.lang || getLang();
+}
+
+// Interpola placeholders dinámicos en una frase del pase:
+//   {tr:welcomeMsg}     → traducido al idioma del conductor
+//   {plate}, {hall}, {driver}, {company}, {event}, {position}
+function interpolatePhrase(text, record, driverLang){
+  if(!text) return '';
+  let out = text;
+  // {tr:key} → traducción al idioma del conductor
+  out = out.replace(/\{tr:([\w_]+)\}/g, (_, key) => {
+    try { return trIn(driverLang, key, key); }
+    catch(_){ return key; }
+  });
+  // Variables de datos
+  const vars = {
+    plate:    record?.matricula || '',
+    hall:     record?.hall || '',
+    stand:    record?.stand || '',
+    driver:   record?.conductor || '',
+    company:  record?.empresa || '',
+    event:    record?.eventoNombre || '',
+    position: record?.posicion || '',
+    time:     record?.horaEntrada || ''
+  };
+  for(const [k, v] of Object.entries(vars)){
+    out = out.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+  }
+  return out;
 }
 
 function getRecordData(){
@@ -1264,6 +1329,7 @@ function startBgCornerDrag(e, corner, paper){
 // Tab Campos
 function renderCamposTab(){
   const wrap = el('div', {});
+  if(!_state.collapsedCats) _state.collapsedCats = {};
 
   const placedCount = Object.keys(_state.fieldLayout).filter(k => !_state.fieldLayout[k].hidden).length;
   wrap.appendChild(el('div', { class:'tab-head-row' },
@@ -1282,10 +1348,16 @@ function renderCamposTab(){
     if(!byCat[cat]) continue;
     const fields = byCat[cat];
     const placed = fields.filter(f => _state.fieldLayout[f.id] && !_state.fieldLayout[f.id].hidden).length;
+    const isCollapsed = !!_state.collapsedCats[cat];
 
-    const catWrap = el('div', { class:'field-category' });
-    catWrap.appendChild(el('div', { class:'field-cat-head' },
-      el('span', { style:{cursor:'pointer'}, onclick: e => { e.currentTarget.parentElement.parentElement.classList.toggle('collapsed'); } }, '▾'),
+    const catWrap = el('div', { class:`field-category ${isCollapsed ? 'collapsed' : ''}` });
+    catWrap.appendChild(el('div', { class:'field-cat-head', style:{cursor:'pointer'},
+      onclick: () => {
+        _state.collapsedCats[cat] = !_state.collapsedCats[cat];
+        render();
+      }
+    },
+      el('span', {}, isCollapsed ? '▸' : '▾'),
       el('span', { class:'field-cat-ico' }, CAT_ICONS[cat] || ''),
       el('span', { class:'field-cat-name' }, cat),
       el('span', { class:'field-cat-count' }, `${placed}/${fields.length}`)
@@ -1440,10 +1512,65 @@ function renderEditarTab(){
       onchange: e => { conf.color = e.target.value; render(); } })
   ));
 
-  // Negrita
-  wrap.appendChild(renderToggle('Negrita', !!conf.bold, v => { conf.bold = v; render(); }));
-  // Resaltado ámbar
-  wrap.appendChild(renderToggle('Resaltar fondo ámbar', !!conf.highlight, v => { conf.highlight = v; render(); }));
+  // ── Formato de texto (estilo Word) ─────────────────────
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} }, 'Formato'));
+  const fmtRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:'4px' } });
+  const fmtBtn = (key, label, title) => {
+    const active = !!conf[key];
+    fmtRow.appendChild(el('button', {
+      class:`btn btn-sm ${active ? 'btn-primary' : 'btn-secondary'}`,
+      title, style:{ padding:'6px 4px', fontWeight:'600' },
+      onclick: () => { conf[key] = !active; render(); }
+    }, label));
+  };
+  fmtBtn('bold',      'B',  'Negrita');
+  fmtBtn('italic',    'I',  'Cursiva');
+  fmtBtn('underline', 'U',  'Subrayado');
+  fmtBtn('strike',    'S̶',  'Tachado');
+  fmtBtn('highlight', '⛛',  'Resaltar fondo ámbar');
+  wrap.appendChild(fmtRow);
+
+  // Alineación del texto
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} }, 'Alineación texto'));
+  const alignRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'4px' } });
+  for(const [val, sym, title] of [['left','⫷','Izquierda'],['center','═','Centro'],['right','⫸','Derecha'],['justify','▤','Justificado']]){
+    const isActive = (conf.textAlign || 'left') === val;
+    alignRow.appendChild(el('button', {
+      class:`btn btn-sm ${isActive ? 'btn-primary' : 'btn-secondary'}`,
+      title, style:{ padding:'6px 4px' },
+      onclick: () => { conf.textAlign = val; render(); }
+    }, sym));
+  }
+  wrap.appendChild(alignRow);
+
+  // Sub/super-script
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} }, 'Posición vertical'));
+  const vposRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'4px' } });
+  for(const [val, sym, title] of [['normal','—','Normal'],['super','x²','Superíndice'],['sub','x₂','Subíndice']]){
+    const isActive = (conf.vAlign || 'normal') === val;
+    vposRow.appendChild(el('button', {
+      class:`btn btn-sm ${isActive ? 'btn-primary' : 'btn-secondary'}`,
+      title, style:{ padding:'6px 4px' },
+      onclick: () => { conf.vAlign = val; render(); }
+    }, sym));
+  }
+  wrap.appendChild(vposRow);
+
+  // Espaciado entre líneas
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} },
+    `Interlineado: ${conf.lineHeight ?? 1.2}`));
+  wrap.appendChild(el('input', { type:'range', min:'1', max:'3', step:'0.1',
+    value: String(conf.lineHeight ?? 1.2), style:{width:'100%'},
+    oninput: e => { conf.lineHeight = Number(e.target.value); render(); }
+  }));
+
+  // Letter-spacing
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'8px'} },
+    `Espaciado letras: ${conf.letterSpacing ?? 0}px`));
+  wrap.appendChild(el('input', { type:'range', min:'-2', max:'15', step:'0.5',
+    value: String(conf.letterSpacing ?? 0), style:{width:'100%'},
+    oninput: e => { conf.letterSpacing = Number(e.target.value); render(); }
+  }));
 
   // Rotación
   wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'14px'} }, `Rotación: ${conf.rotation || 0}°`));
@@ -1567,22 +1694,40 @@ function renderConfigTab(){
   }
 
   // Frase 1 ámbar
-  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'14px'} }, 'Frase 1 (ámbar)'));
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'14px'} },
+    'Frase 1 (ámbar) — se traduce al idioma del conductor'));
   wrap.appendChild(el('input', {
     class:'field-input',
-    placeholder:'Texto destacado…',
+    placeholder:'Ej: Bienvenido a {event}, Hall {hall}',
     value: _state.phrase1 || '',
     oninput: e => { _state.phrase1 = e.target.value; _state.ph1On = !!e.target.value; render(); }
   }));
+  // Plantillas rápidas multiidioma
+  const ph1Row = el('div', { class:'flex gap-2', style:{flexWrap:'wrap', marginTop:'4px'} });
+  for(const [lab, txt] of [
+    ['Bienvenida',      '{tr:welcomeMsg} {driver}'],
+    ['Hall + Stand',    '{tr:hall}: {hall} · {tr:stand}: {stand}'],
+    ['Posición rampa',  '{tr:rampPosition}: {position}']
+  ]){
+    ph1Row.appendChild(el('button', {
+      type:'button', class:'btn btn-ghost btn-sm',
+      onclick: () => { _state.phrase1 = txt; _state.ph1On = true; render(); }
+    }, '+ ' + lab));
+  }
+  wrap.appendChild(ph1Row);
 
   // Frase 2 borde negro
-  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'12px'} }, 'Frase 2 (borde negro)'));
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'12px'} },
+    'Frase 2 (borde negro) — pie del pase'));
   wrap.appendChild(el('input', {
     class:'field-input',
     placeholder:'Pie del pase…',
     value: _state.phrase2 || '',
     oninput: e => { _state.phrase2 = e.target.value; _state.ph2On = !!e.target.value; render(); }
   }));
+  wrap.appendChild(el('p', { class:'cell-mute', style:{fontSize:'11px', marginTop:'2px'} },
+    'Variables disponibles: {plate} {hall} {stand} {driver} {company} {event} {position} {time}. ' +
+    'Para texto traducido al idioma del conductor: {tr:welcomeMsg}, {tr:hall}, etc.'));
 
   // Imagen guía
   wrap.appendChild(el('div', { class:'config-card', style:{marginTop:'14px'} },
@@ -1831,23 +1976,33 @@ function doPrint(){
   }
   recordPrintStat(_state.currentTemplateId);
 
-  if(_state.copies > 1){
-    const original = document.querySelector('.canvas-paper');
-    if(!original) return;
-    const wrap = el('div', { class:'print-area', id:'__pmulti' });
-    for(let i = 0; i < _state.copies; i++){
-      const clone = original.cloneNode(true);
-      if(i < _state.copies - 1) clone.classList.add('page-break');
-      wrap.appendChild(clone);
-    }
-    document.body.appendChild(wrap);
-    original.classList.remove('print-area');
-    setTimeout(() => { window.print(); setTimeout(() => { wrap.remove(); original.classList.add('print-area'); }, 200); }, 100);
-  } else {
-    const canvas = document.querySelector('.canvas-paper');
-    if(canvas) canvas.classList.add('print-area');
-    setTimeout(() => { window.print(); setTimeout(() => { if(canvas) canvas.classList.remove('print-area'); }, 200); }, 100);
+  const original = document.querySelector('.canvas-paper');
+  if(!original) return;
+
+  // Construir wrapper de impresión fuera de cualquier scroll/transform parent
+  const wrap = document.createElement('div');
+  wrap.id = '__pwrap';
+  wrap.className = 'print-area';
+
+  const copies = Math.max(1, Math.min(99, _state.copies || 1));
+  for(let i = 0; i < copies; i++){
+    const clone = original.cloneNode(true);
+    // Limpiar elementos no imprimibles del clon
+    clone.querySelectorAll('.ruler, .ruler-h, .ruler-v, .canvas-bg-img, .bg-edit-layer, .align-guide').forEach(n => n.remove());
+    clone.querySelectorAll('.canvas-field').forEach(n => {
+      n.classList.remove('selected', 'multi-selected');
+      n.removeAttribute('data-pos');
+    });
+    clone.classList.remove('has-grid');
+    if(i < copies - 1) clone.classList.add('page-break');
+    wrap.appendChild(clone);
   }
+  document.body.appendChild(wrap);
+
+  setTimeout(() => {
+    window.print();
+    setTimeout(() => { wrap.remove(); }, 300);
+  }, 80);
 }
 
 function openBatchPrint(){

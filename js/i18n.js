@@ -107,7 +107,8 @@ export const T = {
     showOnlyIf:'Mostrar solo si', always:'Siempre',
     resetLayout:'Reiniciar diseño',
     noTemplateTitle:'Sin plantilla configurada',
-    noTemplateDesc:'Configura los campos en el canvas y guarda la plantilla.'
+    noTemplateDesc:'Configura los campos en el canvas y guarda la plantilla.',
+    welcomeMsg:'Bienvenido', rampPosition:'Posición rampa', papersReady:'Papeles listos'
   },
 
   en: {
@@ -188,7 +189,8 @@ export const T = {
     showOnlyIf:'Show only if', always:'Always',
     resetLayout:'Reset layout',
     noTemplateTitle:'No template configured',
-    noTemplateDesc:'Place fields on the canvas and save the template.'
+    noTemplateDesc:'Place fields on the canvas and save the template.',
+    welcomeMsg:'Welcome', rampPosition:'Ramp position', papersReady:'Documents ready'
   },
 
   fr: {

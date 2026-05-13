@@ -1,5 +1,5 @@
 // conductores.js — base de conductores con idiomas y matrículas habituales
-import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, initials } from '../utils.js';
+import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, initials, chipTel, chipEmail } from '../utils.js';
 import { listLive, create, update, remove, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, emptyState, searchInput, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
@@ -83,9 +83,8 @@ function renderGrid(){
         )
       ),
       c.dni ? el('div', { class:'cell-mute' }, `DNI: ${c.dni}`) : null,
-      c.telefono ? el('div', { class:'cell-mute' },
-        el('a', { href:`tel:${c.telefono}`, class:'tel-link' }, c.telefono)
-      ) : null,
+      c.telefono ? el('div', {}, chipTel(c.telefono)) : null,
+      c.email ? el('div', {}, chipEmail(c.email)) : null,
       c.idiomas?.length ? el('div', { class:'flex gap-2', style:{flexWrap:'wrap'} },
         ...c.idiomas.map(idi => el('span', { class:'chip' }, idi))
       ) : null,

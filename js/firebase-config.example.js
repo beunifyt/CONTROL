@@ -25,6 +25,11 @@ export const defaultCompanyName = "Mi Empresa";
 export const appBaseUrl = window.location.origin + window.location.pathname;
 export const inviteTtlDays = 7;
 
+// ── Asistentes IA (Gemini) ─────────────────────────────────
+// Obtén una API key gratis en https://aistudio.google.com/app/apikey
+// Gratis hasta 60 peticiones/minuto. Deja '' si no quieres usar IA.
+export const geminiApiKey = '';
+
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();

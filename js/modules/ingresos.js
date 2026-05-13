@@ -1,5 +1,6 @@
 // ingresos.js — Ingresos libres (tipo 2) con campo Posición separado
-import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, todayKey } from '../utils.js';
+import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, todayKey, chipTel } from '../utils.js';
+import { getDefaultEventoId } from '../utils.js';
 import { listLive, list, update, remove, createIngreso, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
@@ -7,6 +8,8 @@ import { getCurrentProfile } from '../auth.js';
 import { attachAutocomplete, applyDataToForm } from '../autocomplete.js';
 import { scanPlate } from '../ocr.js';
 import { logger } from '../logger.js';
+import { smartTable, savedFiltersBar } from '../table-helpers.js';
+import { openContactDriverModal } from '../contact-driver.js';
 
 let _container = null;
 let _items = [];
@@ -19,6 +22,9 @@ const KEY_PREFIX = 'mod:ingresos:';
 export async function init(container){
   _container = container;
   _eventos = await list('eventos', { orderBy:'createdAt', order:'desc' });
+  if(!_filterEvento){
+    _filterEvento = getDefaultEventoId(getCurrentProfile());
+  }
   render();
   listLive('ingresos', { key: KEY_PREFIX+'all', orderBy:'createdAt', order:'desc', limit: 500 }, (items) => {
     _items = items;
@@ -85,65 +91,83 @@ function renderTable(){
   if(_filterEvento) filtered = filtered.filter(i => i.eventoId === _filterEvento);
   if(_search) filtered = filtered.filter(i => matchesSearch(_search, i.matricula, i.conductor, i.empresa));
 
+  t.appendChild(savedFiltersBar({
+    module:'ingresos',
+    currentFilters: { today:_filterToday, eventoId:_filterEvento, search:_search },
+    onApply: f => {
+      if(f === null){ renderTable(); return; }
+      _filterToday = !!f.today;
+      _filterEvento = f.eventoId || '';
+      _search = f.search || '';
+      render();
+    }
+  }));
+
   if(filtered.length === 0){
     t.appendChild(emptyState({
       iconName:'ingresos',
       title: _items.length === 0 ? 'Sin ingresos' : 'Sin resultados',
-      message: _items.length === 0 ? 'Registra el primer ingreso libre.' : 'Cambia los filtros o el término de búsqueda.'
+      message: _items.length === 0 ? 'Registra el primer ingreso libre.' : 'Cambia los filtros o el término de búsqueda.',
+      columns: ['Pos.','Día','Matrícula','Conductor','Empresa','Hall','Estado','Entrada','Salida','Acciones']
     }));
     return;
   }
 
-  const wrap = el('div', { class:'table-wrap' });
-  const tbl = el('table', { class:'table' });
-  const thead = el('thead', {}, el('tr', {},
-    el('th',{},'Pos.'),
-    el('th',{},'Día'),
-    el('th',{},'Matrícula'),
-    el('th',{},'Conductor'),
-    el('th',{},'Empresa'),
-    el('th',{},'Hall'),
-    el('th',{},'Estado'),
-    el('th',{},'Entrada'),
-    el('th',{},'Salida'),
-    el('th',{},'Acciones')
-  ));
-  tbl.appendChild(thead);
-  const tb = el('tbody');
-  for(const i of filtered){
-    const ev = _eventos.find(e => e.id === i.eventoId);
-    const tr = el('tr', {},
-      el('td', {}, el('span', { class:`cell-pos ${i.posicionManual ? 'manual' : ''}`, title: i.posicionManual ? 'Posición manual' : 'Posición automática' }, String(i.posicion || '—'))),
-      el('td', { class:'cell-mute' }, i.fechaKey || '—'),
-      el('td', { class:'cell-plate' }, i.matricula || '—'),
-      el('td', {}, i.conductor || '—'),
-      el('td', { class:'cell-mute' }, i.empresa || '—'),
-      el('td', {}, i.hall || '—'),
-      el('td', {}, statusBadge(i.estado || 'dentro')),
-      el('td', { class:'cell-mute' }, i.horaEntrada || '—'),
-      el('td', { class:'cell-mute' }, i.horaSalida || '—'),
-      rowActions(i, p)
-    );
-    tb.appendChild(tr);
-  }
-  tbl.appendChild(tb);
-  wrap.appendChild(tbl);
-  t.appendChild(wrap);
+  const columns = [
+    { id:'posicion',  label:'Pos.',      render: i => el('span', { class:`cell-pos ${i.posicionManual ? 'manual' : ''}` }, String(i.posicion || '—')) },
+    { id:'fechaKey',  label:'Día',       render: i => el('span', { class:'cell-mute' }, i.fechaKey || '—') },
+    { id:'matricula', label:'Matrícula', render: i => el('span', { class:'cell-plate' }, i.matricula || '—') },
+    { id:'conductor', label:'Conductor', render: i => i.conductor || '—' },
+    { id:'empresa',   label:'Empresa',   render: i => el('span', { class:'cell-mute' }, i.empresa || '—') },
+    { id:'hall',      label:'Hall',      render: i => i.hall || '—' },
+    { id:'stand',     label:'Stand',     render: i => i.stand || '—', default:false },
+    { id:'estado',    label:'Estado',    render: i => statusBadge(i.estado || 'dentro') },
+    { id:'horaEntrada', label:'Entrada', render: i => el('span', { class:'cell-mute' }, i.horaEntrada || '—') },
+    { id:'horaSalida',  label:'Salida',  render: i => el('span', { class:'cell-mute' }, i.horaSalida || '—') },
+    { id:'telefono',  label:'Teléfono',  render: i => i.telefono ? chipTel(i.telefono) : '—', default:false },
+    { id:'notas',     label:'Notas',     render: i => el('span', { class:'cell-mute' }, (i.notas || '').slice(0,30) || '—'), default:false }
+  ];
+
+  t.appendChild(smartTable({
+    module:'ingresos',
+    columns, rows: filtered,
+    detailRenderer: i => {
+      const ev = _eventos.find(e => e.id === i.eventoId);
+      const dl = el('div', { style:{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'8px 24px', fontSize:'13px'} });
+      const cell = (label, value) => el('div', {},
+        el('span', { class:'cell-mute', style:{fontSize:'11px', textTransform:'uppercase', display:'block'} }, label),
+        el('span', { style:{fontWeight:500} }, String(value || '—'))
+      );
+      dl.appendChild(cell('Evento', ev?.nombre));
+      dl.appendChild(cell('Día', i.fechaKey));
+      dl.appendChild(cell('Posición', i.posicion));
+      dl.appendChild(cell('Matrícula', i.matricula));
+      dl.appendChild(cell('Conductor', i.conductor));
+      dl.appendChild(cell('Empresa', i.empresa));
+      dl.appendChild(cell('Hall · Stand', `${i.hall || '—'} · ${i.stand || '—'}`));
+      dl.appendChild(cell('Teléfono', i.telefono));
+      dl.appendChild(cell('Notas', i.notas));
+      return dl;
+    },
+    rowActions: i => rowActions(i, p)
+  }));
 }
 
 function rowActions(i, p){
-  const td = el('td', {}, el('div', { class:'row-actions' }));
-  const wrap = td.firstChild;
-
+  const wrap = el('div', { class:'row-actions' });
   if(canEdit(p)){
-    if(i.estado === 'salida'){
-      // ya salió
-    } else {
+    if(i.estado !== 'salida'){
+      wrap.appendChild(el('button', { class:'btn btn-secondary btn-icon', title:'Registrar salida',
+        onclick: () => registrarSalida(i) }, el('span', { html: icon('exit') })));
+    }
+    if(i.telefono || i.conductor){
       wrap.appendChild(el('button', {
-        class:'btn btn-secondary btn-icon',
-        title:'Registrar salida',
-        onclick: () => registrarSalida(i)
-      }, el('span', { html: icon('exit') })));
+        class:'btn btn-ghost btn-icon', title:'Contactar conductor',
+        onclick: () => openContactDriverModal({
+          ...i,
+          eventoNombre: _eventos.find(e => e.id === i.eventoId)?.nombre
+        })
+      }, '💬'));
     }
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => openForm(i), title:'Editar' },
       el('span', { html: icon('edit') })));
@@ -152,7 +176,7 @@ function rowActions(i, p){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => deleteItem(i), title:'Eliminar' },
       el('span', { html: icon('trash') })));
   }
-  return td;
+  return wrap;
 }
 
 async function registrarSalida(i){

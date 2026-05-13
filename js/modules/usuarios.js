@@ -1,11 +1,20 @@
-// usuarios.js — gestión de usuarios + matriz de permisos por rol
+// usuarios.js — gestión de usuarios + permisos granulares 3 niveles + roles personalizados
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, fmtDate } from '../utils.js';
 import { listLive, list, update, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, emptyState, badge } from './shared.js';
-import { isAdmin, ROLE_LABEL, ROLES, MODULES, getPerms, savePerms, DEFAULT_PERMS } from '../roles.js';
+import {
+  isAdmin, ROLE_LABEL, ROLE_COLOR, BUILTIN_ROLES, MODULES, MODULE_GROUPS,
+  getPerms, getCustomRoles, getAllRoles, getRoleLabel,
+  savePerms, DEFAULT_ROLE_PERMS, getModuleAccess
+} from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 import { createInvite, listInvites, deleteInvite } from '../invites.js';
 import { appBaseUrl } from '../firebase-config.js';
+import { getUserAccessHistory, listUserDevices, revokeDevice, approveDevice } from '../security.js';
+
+// Alias para compatibilidad con código abajo
+const ROLES = BUILTIN_ROLES;
+const DEFAULT_PERMS = DEFAULT_ROLE_PERMS;
 
 let _container = null;
 let _items = [];
@@ -76,7 +85,8 @@ function render(){
       el('td', { class:'cell-mute' }, fmtDate(u.createdAt)),
       el('td', {}, el('div', { class:'row-actions' },
         u.id !== p.id ? el('button', { class:'btn btn-secondary btn-sm', onclick: () => openEdit(u) },
-          el('span', { html: icon('edit') }), 'Editar') : el('span', { class:'cell-mute' }, '(tú)')
+          el('span', { html: icon('edit') }), 'Editar') : el('span', { class:'cell-mute' }, '(tú)'),
+        el('button', { class:'btn btn-ghost btn-sm', onclick: () => openUserHistory(u), title:'Histórico accesos + dispositivos' }, '📋')
       ))
     ));
   }
@@ -102,7 +112,7 @@ function openEdit(u){
 
   const grid = el('div', { class:'form-grid' });
   grid.appendChild(formField({ label:'Email', name:'email', value:u.email, full:true }));
-  grid.appendChild(formField({ label:'Rol', name:'role', value:u.role || 'user', options: ROLES.map(r => ({ value:r, label: ROLE_LABEL[r] })) }));
+  grid.appendChild(formField({ label:'Rol', name:'role', value:u.role || 'user', options: getAllRoles().map(r => ({ value:r, label: getRoleLabel(r) })) }));
   grid.appendChild(formField({ label:'Estado', name:'active', value: u.active ? 'true' : 'false', options:[
     { value:'true', label:'Activo' }, { value:'false', label:'Inactivo' }
   ]}));
@@ -125,30 +135,156 @@ function openEdit(u){
   setTimeout(() => form.parentElement.appendChild(footer), 60);
 }
 
-// ── Modal: Permisos por Rol ───────────────────────────────────
+// ── Histórico de accesos + dispositivos de un usuario ──────────
+async function openUserHistory(u){
+  const body = el('div', { style:{minWidth:'600px'} });
+  body.appendChild(el('p', { class:'cell-mute', style:{margin:'0 0 12px'} },
+    `Accesos y dispositivos asociados a ${u.displayName || u.email}.`));
+
+  // Tabs internas
+  let tab = 'access';
+  const tabRow = el('div', { class:'role-tabs', style:{marginBottom:'10px'} });
+  const render = () => {
+    body.querySelectorAll('.uh-content').forEach(n => n.remove());
+    const content = el('div', { class:'uh-content' });
+    if(tab === 'access')      content.appendChild(renderAccessHistory(u));
+    else                       content.appendChild(renderDevicesHistory(u));
+    body.appendChild(content);
+  };
+  for(const t of [['access','📋 Accesos'],['devices','🖥 Dispositivos']]){
+    tabRow.appendChild(el('button', {
+      class:`role-tab ${tab === t[0] ? 'active' : ''}`,
+      onclick: e => {
+        tab = t[0];
+        tabRow.querySelectorAll('.role-tab').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        render();
+      }
+    }, t[1]));
+  }
+  body.appendChild(tabRow);
+  render();
+
+  const footer = el('div', { class:'modal-foot' },
+    el('button', { class:'btn btn-primary', onclick: closeModal }, 'Cerrar')
+  );
+  openModal({ title:`Histórico · ${u.displayName || u.email}`, body, size:'lg' });
+  setTimeout(() => body.parentElement.appendChild(footer), 60);
+}
+
+function renderAccessHistory(u){
+  const wrap = el('div', {});
+  wrap.appendChild(el('div', { class:'cell-mute', style:{padding:'12px'} }, 'Cargando…'));
+  getUserAccessHistory(u.id, 50).then(logs => {
+    clear(wrap);
+    if(logs.length === 0){
+      wrap.appendChild(el('div', { class:'cell-mute', style:{padding:'20px', textAlign:'center'} },
+        'Sin accesos registrados.'));
+      return;
+    }
+    const tbl = el('table', { class:'table' });
+    tbl.appendChild(el('thead', {}, el('tr', {},
+      el('th',{},'Fecha'),
+      el('th',{},'Dispositivo'),
+      el('th',{},'Huella'),
+      el('th',{},'Resultado')
+    )));
+    const tb = el('tbody');
+    for(const a of logs){
+      const fecha = a.createdAt?.toDate ? a.createdAt.toDate() : null;
+      tb.appendChild(el('tr', {},
+        el('td', { class:'cell-mute', style:{fontSize:'12px'} }, fecha ? fecha.toLocaleString() : '—'),
+        el('td', {}, a.deviceLabel || '—'),
+        el('td', { class:'cell-mute', style:{fontFamily:'monospace', fontSize:'11px'} }, a.deviceFingerprint || '—'),
+        el('td', {}, el('span', { class:`badge ${a.success ? 'badge-green' : 'badge-red'}` }, a.success ? 'OK' : 'Fallo'))
+      ));
+    }
+    tbl.appendChild(tb);
+    wrap.appendChild(tbl);
+  });
+  return wrap;
+}
+
+function renderDevicesHistory(u){
+  const wrap = el('div', {});
+  wrap.appendChild(el('div', { class:'cell-mute', style:{padding:'12px'} }, 'Cargando…'));
+  listUserDevices(u.id).then(devices => {
+    clear(wrap);
+    if(devices.length === 0){
+      wrap.appendChild(el('div', { class:'cell-mute', style:{padding:'20px', textAlign:'center'} },
+        'Sin dispositivos asociados.'));
+      return;
+    }
+    const tbl = el('table', { class:'table' });
+    tbl.appendChild(el('thead', {}, el('tr', {},
+      el('th',{},'Dispositivo'),
+      el('th',{},'Huella'),
+      el('th',{},'Estado'),
+      el('th',{},'Última vez'),
+      el('th',{},'Acciones')
+    )));
+    const tb = el('tbody');
+    for(const d of devices){
+      const seen = d.lastSeen?.toDate ? d.lastSeen.toDate() : null;
+      tb.appendChild(el('tr', {},
+        el('td', {}, d.label || '—'),
+        el('td', { class:'cell-mute', style:{fontFamily:'monospace', fontSize:'11px'} }, d.fingerprint || '—'),
+        el('td', {}, el('span', { class:`badge ${d.approved ? 'badge-green' : 'badge-amber'}` }, d.approved ? 'Aprobado' : 'Pendiente')),
+        el('td', { class:'cell-mute' }, seen ? seen.toLocaleString() : '—'),
+        el('td', {}, el('div', { class:'row-actions' },
+          d.approved
+            ? el('button', { class:'btn btn-danger btn-sm', onclick: async () => {
+                try{ await revokeDevice(d.id); toast('Revocado', 'ok'); openUserHistory(u); closeModal(); }
+                catch(e){ toast(e.message, 'err'); }
+              } }, 'Revocar')
+            : el('button', { class:'btn btn-primary btn-sm', onclick: async () => {
+                try{ await approveDevice(d.id); toast('Aprobado', 'ok'); openUserHistory(u); closeModal(); }
+                catch(e){ toast(e.message, 'err'); }
+              } }, 'Aprobar')
+        ))
+      ));
+    }
+    tbl.appendChild(tb);
+    wrap.appendChild(tbl);
+  });
+  return wrap;
+}
+
+// ── Modal: Permisos Granulares 3 niveles + Roles personalizados ──
 let _draftPerms = null;
+let _draftCustomRoles = null;
 let _activeRoleTab = 'supervisor';
 
 function openPermsModal(){
   const p = getCurrentProfile();
   if(!isAdmin(p)) return;
   _draftPerms = JSON.parse(JSON.stringify(getPerms()));
+  _draftCustomRoles = JSON.parse(JSON.stringify(getCustomRoles()));
   _activeRoleTab = 'supervisor';
 
   const body = el('div', {});
   body.appendChild(el('p', { class:'cell-mute', style:{marginTop:0,marginBottom:'12px',fontSize:'13px'} },
-    'Configura qué módulos ve cada rol y qué acciones puede realizar. El admin siempre tiene acceso total.'));
+    'Cada módulo tiene 3 niveles: ',
+    el('strong', {}, 'Sin acceso'), ', ',
+    el('strong', { style:{color:'#1D4ED8'} }, 'Solo lectura'), ' o ',
+    el('strong', { style:{color:'#15803D'} }, 'Lectura + Escritura'),
+    '. El admin siempre tiene acceso total.'));
 
+  // Tabs de rol (built-in + custom + botón crear)
   const tabs = el('div', { class:'role-tabs' });
-  const editableRoles = ['supervisor','operario','user'];
-  for(const r of editableRoles){
-    tabs.appendChild(el('button', {
-      class: `role-tab ${r === _activeRoleTab ? 'active' : ''}`,
-      'data-role': r,
-      onclick: () => { _activeRoleTab = r; renderPermsContent(body, container); }
-    }, ROLE_LABEL[r]));
-  }
-  body.appendChild(tabs);
+  const tabsRef = tabs; // para refrescar
+  renderRoleTabs(tabs);
+  body.appendChild(tabsRef);
+
+  // Leyenda + acciones rápidas por grupo
+  body.appendChild(el('div', { class:'perm-legend' },
+    el('span', { class:'flex items-center gap-2' },
+      el('span', { class:'lvl-dot lvl-none' }), 'Sin acceso'),
+    el('span', { class:'flex items-center gap-2' },
+      el('span', { class:'lvl-dot lvl-read' }), 'Lectura'),
+    el('span', { class:'flex items-center gap-2' },
+      el('span', { class:'lvl-dot lvl-write' }), 'Escritura')
+  ));
 
   const container = el('div', { id:'perms-content' });
   body.appendChild(container);
@@ -163,67 +299,152 @@ function openPermsModal(){
     } }, 'Por defecto'),
     el('button', { class:'btn btn-primary', onclick: async () => {
       try{
-        await savePerms(_draftPerms, getCurrentProfile()?.id);
+        await savePerms({ perms: _draftPerms, customRoles: _draftCustomRoles }, getCurrentProfile()?.id);
         toast('Permisos guardados', 'ok');
         closeModal();
       } catch(e){ toast(e.message, 'err'); }
     } }, 'Guardar')
   );
 
-  openModal({ title:'Permisos de Módulos por Rol', body, size:'lg' });
+  openModal({ title:'🛡 Permisos Granulares por Rol', body, size:'lg' });
   setTimeout(() => body.parentElement.appendChild(footer), 60);
+
+  function renderRoleTabs(tabsEl){
+    clear(tabsEl);
+    const editableBuiltin = ['supervisor','operario','user','empresa'];
+    for(const r of editableBuiltin){
+      tabsEl.appendChild(el('button', {
+        class: `role-tab ${r === _activeRoleTab ? 'active' : ''}`,
+        'data-role': r,
+        onclick: () => { _activeRoleTab = r; renderPermsContent(body, container); renderRoleTabs(tabsEl); }
+      }, ROLE_LABEL[r]));
+    }
+    // Roles personalizados
+    for(const cr of _draftCustomRoles){
+      tabsEl.appendChild(el('button', {
+        class: `role-tab role-custom ${cr.id === _activeRoleTab ? 'active' : ''}`,
+        'data-role': cr.id,
+        onclick: () => { _activeRoleTab = cr.id; renderPermsContent(body, container); renderRoleTabs(tabsEl); }
+      },
+        el('span', {}, cr.label || cr.id),
+        el('span', {
+          class:'role-tab-x',
+          title:'Eliminar rol personalizado',
+          onclick: e => {
+            e.stopPropagation();
+            if(confirm(`¿Eliminar el rol "${cr.label}"?`)){
+              _draftCustomRoles = _draftCustomRoles.filter(x => x.id !== cr.id);
+              delete _draftPerms[cr.id];
+              if(_activeRoleTab === cr.id) _activeRoleTab = 'supervisor';
+              renderRoleTabs(tabsEl);
+              renderPermsContent(body, container);
+            }
+          }
+        }, '×')
+      ));
+    }
+    // Botón "+ Nuevo rol"
+    tabsEl.appendChild(el('button', {
+      class:'role-tab role-add',
+      onclick: () => {
+        const label = prompt('Nombre del nuevo rol personalizado:');
+        if(!label || !label.trim()) return;
+        const cleanLabel = label.trim();
+        const id = 'custom_' + cleanLabel.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24);
+        if(_draftCustomRoles.some(r => r.id === id) || BUILTIN_ROLES.includes(id)){
+          toast('Ya existe un rol con ese nombre', 'err');
+          return;
+        }
+        // Copia los permisos del rol activo como punto de partida
+        const basePerms = JSON.parse(JSON.stringify(_draftPerms[_activeRoleTab] || _draftPerms.user));
+        _draftCustomRoles.push({ id, label: cleanLabel, perms: basePerms });
+        _draftPerms[id] = basePerms;
+        _activeRoleTab = id;
+        renderRoleTabs(tabsEl);
+        renderPermsContent(body, container);
+        toast(`Rol "${cleanLabel}" creado. Configura sus permisos.`, 'ok');
+      }
+    }, '+ Nuevo rol'));
+  }
 }
 
 function renderPermsContent(body, container){
-  // actualizar tabs activos
-  body.querySelectorAll('.role-tab').forEach(b => {
-    b.classList.toggle('active', b.dataset.role === _activeRoleTab);
-  });
-
   clear(container);
   const role = _activeRoleTab;
-  const perm = _draftPerms[role] || JSON.parse(JSON.stringify(DEFAULT_PERMS[role] || { modules:[], canCreate:false, canEdit:false, canDelete:false }));
-  if(!_draftPerms[role]) _draftPerms[role] = perm;
 
-  // Acciones
-  container.appendChild(el('h4', { style:{marginTop:'12px',marginBottom:'8px',fontSize:'13px',textTransform:'uppercase',color:'var(--text-3)',letterSpacing:'0.05em'} }, 'Permisos generales'));
-  const actions = el('div', { class:'perm-grid', style:{marginBottom:'16px'} });
-  for(const [key, label] of [['canCreate','Crear'],['canEdit','Editar'],['canDelete','Eliminar']]){
-    const cell = el('div', {
-      class:`perm-cell ${perm[key] ? 'on' : ''}`,
-      onclick: () => { perm[key] = !perm[key]; renderPermsContent(body, container); }
-    },
-      el('span', {}, label),
-      el('span', { class:'perm-check', html: perm[key] ? icon('check') : icon('close') })
-    );
-    actions.appendChild(cell);
+  // Asegurar que _draftPerms[role] exista en formato granular
+  if(!_draftPerms[role] || typeof _draftPerms[role] !== 'object' || Array.isArray(_draftPerms[role].modules)){
+    const init = {};
+    for(const m of MODULES) init[m.id] = 'none';
+    _draftPerms[role] = init;
   }
-  container.appendChild(actions);
+  const perm = _draftPerms[role];
 
-  // Módulos
-  container.appendChild(el('h4', { style:{marginTop:'12px',marginBottom:'8px',fontSize:'13px',textTransform:'uppercase',color:'var(--text-3)',letterSpacing:'0.05em'} }, 'Módulos visibles'));
-  const grid = el('div', { class:'perm-grid' });
-  for(const m of MODULES){
-    if(m.adminOnly) continue;
-    const on = perm.modules.includes(m.id);
-    const cell = el('div', {
-      class:`perm-cell ${on ? 'on' : ''}`,
-      onclick: () => {
-        const idx = perm.modules.indexOf(m.id);
-        if(idx >= 0) perm.modules.splice(idx, 1);
-        else perm.modules.push(m.id);
-        renderPermsContent(body, container);
-      }
-    },
-      el('span', { class:'flex gap-2 items-center' },
-        el('span', { html: icon(m.icon), style:{ width:'16px', height:'16px', display:'flex' } }),
-        el('span', {}, m.label)
-      ),
-      el('span', { class:'perm-check', html: on ? icon('check') : icon('close') })
-    );
-    grid.appendChild(cell);
+  // Header del rol con resumen
+  const writeCount = MODULES.filter(m => perm[m.id] === 'write').length;
+  const readCount  = MODULES.filter(m => perm[m.id] === 'read').length;
+  const noneCount  = MODULES.filter(m => perm[m.id] === 'none' || !perm[m.id]).length;
+
+  container.appendChild(el('div', { class:'perm-summary' },
+    el('span', { class:'lvl-chip lvl-write' }, `${writeCount} escritura`),
+    el('span', { class:'lvl-chip lvl-read'  }, `${readCount} lectura`),
+    el('span', { class:'lvl-chip lvl-none'  }, `${noneCount} sin acceso`)
+  ));
+
+  // Acciones rápidas por grupo
+  const quickRow = el('div', { class:'perm-quick-row' });
+  quickRow.appendChild(el('span', { class:'cell-mute', style:{fontSize:'11px',marginRight:'4px'} }, 'Acciones por grupo:'));
+  for(const g of MODULE_GROUPS){
+    quickRow.appendChild(el('div', { class:'perm-group-chip' },
+      el('span', { class:'pg-label' }, g.label),
+      el('button', { class:'pg-btn pg-w', title:`Dar escritura a todo ${g.label}`,
+        onclick: () => { g.ids.forEach(id => perm[id] = 'write'); renderPermsContent(body, container); }
+      }, 'W'),
+      el('button', { class:'pg-btn pg-r', title:`Dar solo lectura a todo ${g.label}`,
+        onclick: () => { g.ids.forEach(id => perm[id] = 'read'); renderPermsContent(body, container); }
+      }, 'R'),
+      el('button', { class:'pg-btn pg-x', title:`Sin acceso a ${g.label}`,
+        onclick: () => { g.ids.forEach(id => perm[id] = 'none'); renderPermsContent(body, container); }
+      }, '×')
+    ));
   }
-  container.appendChild(grid);
+  container.appendChild(quickRow);
+
+  container.appendChild(el('p', { class:'cell-mute', style:{fontSize:'12px',marginTop:'10px'} },
+    'Haz clic en cada módulo para ciclar entre: Sin acceso → Lectura → Escritura'));
+
+  // Grid de módulos agrupados por categoría
+  for(const group of MODULE_GROUPS){
+    container.appendChild(el('div', { class:'perm-group-head' }, group.label));
+    const grid = el('div', { class:'perm-mod-grid' });
+    for(const modId of group.ids){
+      const m = MODULES.find(x => x.id === modId);
+      if(!m) continue;
+      if(m.adminOnly) continue;
+      // empresa solo aplica al rol empresa
+      if(m.empresaOnly && role !== 'empresa') continue;
+      const level = perm[modId] || 'none';
+      const cell = el('div', {
+        class:`perm-mod-cell lvl-${level}`,
+        title:`Nivel actual: ${level === 'none' ? 'Sin acceso' : level === 'read' ? 'Solo lectura' : 'Lectura + Escritura'}\nClic para cambiar`,
+        onclick: () => {
+          perm[modId] = level === 'none' ? 'read' : level === 'read' ? 'write' : 'none';
+          renderPermsContent(body, container);
+        }
+      },
+        el('span', { class:'pmod-ico', html: icon(m.icon) }),
+        el('div', { class:'pmod-body' },
+          el('div', { class:'pmod-label' }, m.label),
+          el('div', { class:'pmod-desc' }, m.desc || '')
+        ),
+        el('span', { class:'pmod-level' },
+          level === 'write' ? '✎' : level === 'read' ? '👁' : '🔒')
+        )
+      );
+      grid.appendChild(cell);
+    }
+    container.appendChild(grid);
+  }
 }
 
 // ── Modal: Invitaciones ───────────────────────────────────────
@@ -266,7 +487,7 @@ async function openInvitesPanel(){
   const grid = el('div', { class:'form-grid' });
   grid.appendChild(formField({ label:'Email', name:'email', type:'email', required:true, full:true }));
   grid.appendChild(formField({ label:'Nombre', name:'displayName' }));
-  grid.appendChild(formField({ label:'Rol', name:'role', value:'user', options: ROLES.map(r => ({ value:r, label: ROLE_LABEL[r] })) }));
+  grid.appendChild(formField({ label:'Rol', name:'role', value:'user', options: getAllRoles().map(r => ({ value:r, label: getRoleLabel(r) })) }));
   grid.appendChild(formField({ label:'Empresa', name:'empresa', full:true }));
   form.appendChild(grid);
 

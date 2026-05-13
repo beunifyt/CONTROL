@@ -202,3 +202,64 @@ function openColumnConfig(module, allColumns, activeColumns, onSave){
     setTimeout(() => body.parentElement.appendChild(footer), 60);
   });
 }
+
+// ═══════════════════════════════════════════════════════════════
+// FILTROS GUARDADOS UI
+// Permite guardar combinaciones de filtros con nombre y reactivarlas.
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Renderiza la UI de filtros guardados.
+ *
+ * @param {string} module - id del módulo (referencias, ingresos, etc.)
+ * @param {object} currentFilters - filtros actuales {key: value}
+ * @param {function} onApply - callback({filters}) cuando se aplica un filtro guardado
+ */
+export function savedFiltersBar({module, currentFilters, onApply}){
+  const profile = getCurrentProfile();
+  const uid = profile?.id;
+  const saved = Prefs.getFilters(uid, module);
+
+  const wrap = el('div', { class:'saved-filters-bar' });
+
+  // Botón guardar filtro actual
+  wrap.appendChild(el('button', {
+    class:'btn btn-ghost btn-sm', title:'Guardar filtros actuales',
+    onclick: () => promptSaveFilter(uid, module, currentFilters)
+  }, '⭐ Guardar filtro'));
+
+  // Chips de filtros guardados
+  for(const f of saved){
+    const chip = el('div', { class:'saved-filter-chip' },
+      el('span', {
+        class:'sfc-label',
+        onclick: () => onApply(f.filters)
+      }, f.name),
+      el('button', {
+        class:'sfc-remove',
+        title:'Eliminar',
+        onclick: e => {
+          e.stopPropagation();
+          Prefs.removeFilter(uid, module, f.id);
+          if(onApply) onApply(null); // refresca
+        }
+      }, '×')
+    );
+    wrap.appendChild(chip);
+  }
+
+  return wrap;
+}
+
+function promptSaveFilter(uid, module, currentFilters){
+  // No usar openModal aquí por circular import; usar prompt nativo
+  const name = window.prompt('Nombre del filtro:');
+  if(!name || !name.trim()) return;
+  Prefs.addFilter(uid, module, {
+    name: name.trim(),
+    filters: JSON.parse(JSON.stringify(currentFilters || {}))
+  });
+  // Trigger un repintado disparando evento
+  document.dispatchEvent(new CustomEvent('saved-filters-changed', { detail: { module } }));
+  if(window.__beunifyt_toast) window.__beunifyt_toast('Filtro guardado', 'ok');
+}

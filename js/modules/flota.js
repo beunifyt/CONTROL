@@ -4,6 +4,7 @@ import { listLive, list, create, update, remove, unregisterListenersByPrefix } f
 import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
+import { smartTable, savedFiltersBar } from '../table-helpers.js';
 
 let _container = null;
 let _items = [];
@@ -82,42 +83,66 @@ function renderTable(){
   if(_filterEstado)  filtered = filtered.filter(v => v.estado === _filterEstado);
   if(_search)        filtered = filtered.filter(v => matchesSearch(_search, v.matricula, v.modelo, v.marca));
 
+  t.appendChild(savedFiltersBar({
+    module:'flota',
+    currentFilters: { empresaId:_filterEmpresa, estado:_filterEstado, search:_search },
+    onApply: f => {
+      if(f === null){ renderTable(); return; }
+      _filterEmpresa = f.empresaId || '';
+      _filterEstado = f.estado || '';
+      _search = f.search || '';
+      render();
+    }
+  }));
+
   if(filtered.length === 0){
     t.appendChild(emptyState({
       iconName:'flota',
       title: _items.length === 0 ? 'Sin vehículos' : 'Sin resultados',
-      message: _items.length === 0 ? 'Registra tu primer vehículo.' : 'Cambia los filtros.'
+      message: _items.length === 0 ? 'Registra tu primer vehículo.' : 'Cambia los filtros.',
+      columns: ['Matrícula','Tipo','Marca/Modelo','Empresa','Estado','Tacógrafo','Acciones']
     }));
     return;
   }
 
-  const wrap = el('div', { class:'table-wrap' });
-  const tbl = el('table', { class:'table' });
-  tbl.appendChild(el('thead', {}, el('tr', {},
-    el('th',{},'Matrícula'), el('th',{},'Tipo'), el('th',{},'Marca/Modelo'),
-    el('th',{},'Empresa'), el('th',{},'Estado'), el('th',{},'Tacógrafo'), el('th',{},'Acciones')
-  )));
-  const tb = el('tbody');
-  for(const v of filtered){
-    const empresa = _empresas.find(e => e.id === v.empresaId);
-    tb.appendChild(el('tr', {},
-      el('td', { class:'cell-plate' }, v.matricula || '—'),
-      el('td', { class:'cell-mute' }, v.tipo || '—'),
-      el('td', {}, [v.marca, v.modelo].filter(Boolean).join(' ') || '—'),
-      el('td', { class:'cell-mute' }, empresa?.nombre || '—'),
-      el('td', {}, statusBadge(v.estado || 'almacen')),
-      el('td', { class:'cell-mute' }, v.tacografo || '—'),
-      rowActions(v, p)
-    ));
-  }
-  tbl.appendChild(tb);
-  wrap.appendChild(tbl);
-  t.appendChild(wrap);
+  const columns = [
+    { id:'matricula', label:'Matrícula', render: v => el('span', { class:'cell-plate' }, v.matricula || '—') },
+    { id:'remolque',  label:'Remolque',  render: v => v.remolque || '—', default:false },
+    { id:'tipo',      label:'Tipo',      render: v => el('span', { class:'cell-mute' }, v.tipo || '—') },
+    { id:'marcaModelo', label:'Marca/Modelo', render: v => [v.marca, v.modelo].filter(Boolean).join(' ') || '—' },
+    { id:'empresa',   label:'Empresa',   render: v => { const e = _empresas.find(x => x.id === v.empresaId); return el('span', { class:'cell-mute' }, e?.nombre || '—'); } },
+    { id:'estado',    label:'Estado',    render: v => statusBadge(v.estado || 'almacen') },
+    { id:'tacografo', label:'Tacógrafo', render: v => el('span', { class:'cell-mute' }, v.tacografo || '—') },
+    { id:'notas',     label:'Notas',     render: v => el('span', { class:'cell-mute' }, (v.notas || '').slice(0,30) || '—'), default:false }
+  ];
+
+  t.appendChild(smartTable({
+    module:'flota',
+    columns, rows: filtered,
+    detailRenderer: v => {
+      const empresa = _empresas.find(e => e.id === v.empresaId);
+      const dl = el('div', { style:{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'8px 24px', fontSize:'13px'} });
+      const cell = (label, value) => el('div', {},
+        el('span', { class:'cell-mute', style:{fontSize:'11px', textTransform:'uppercase', display:'block'} }, label),
+        el('span', { style:{fontWeight:500} }, String(value || '—'))
+      );
+      dl.appendChild(cell('Matrícula', v.matricula));
+      dl.appendChild(cell('Remolque', v.remolque));
+      dl.appendChild(cell('Tipo', v.tipo));
+      dl.appendChild(cell('Marca', v.marca));
+      dl.appendChild(cell('Modelo', v.modelo));
+      dl.appendChild(cell('Empresa', empresa?.nombre));
+      dl.appendChild(cell('Estado', v.estado));
+      dl.appendChild(cell('Tacógrafo', v.tacografo));
+      dl.appendChild(cell('Notas', v.notas));
+      return dl;
+    },
+    rowActions: v => rowActions(v, p)
+  }));
 }
 
 function rowActions(v, p){
-  const td = el('td', {}, el('div', { class:'row-actions' }));
-  const wrap = td.firstChild;
+  const wrap = el('div', { class:'row-actions' });
   if(canEdit(p)){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => openForm(v), title:'Editar' },
       el('span', { html: icon('edit') })));
@@ -126,7 +151,7 @@ function rowActions(v, p){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => deleteItem(v), title:'Eliminar' },
       el('span', { html: icon('trash') })));
   }
-  return td;
+  return wrap;
 }
 
 function openForm(item){

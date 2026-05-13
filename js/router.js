@@ -20,7 +20,11 @@ const ROUTES = {
   usuarios:    () => import('./modules/usuarios.js'),
   papelera:    () => import('./modules/papelera.js'),
   tutorial:    () => import('./modules/tutorial.js'),
-  tracking:    () => import('./modules/tracking.js')
+  tracking:        () => import('./modules/tracking.js'),
+  seguridad:       () => import('./modules/seguridad.js'),
+  turnos:          () => import('./modules/turnos.js'),
+  asistentes:      () => import('./modules/asistentes.js'),
+  'portal-empresa': () => import('./modules/portal-empresa.js')
 };
 
 let _currentModule = null;

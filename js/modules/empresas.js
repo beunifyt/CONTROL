@@ -188,7 +188,13 @@ function renderGrid(){
 
 function openForm(item){
   const isEdit = !!item;
-  const data = item || { nombre:'', cif:'', email:'', telefono:'', direccion:'', nivel:'estandar', notas:'' };
+  const data = item || {
+    nombre:'', cif:'', email:'', telefono:'', direccion:'', ciudad:'', contacto:'',
+    nivel:'estandar', notas:'',
+    rgpdAceptado:false, rgpdFecha:'', viesVerificado:false, viesFecha:''
+  };
+  let _rgpd = !!data.rgpdAceptado;
+  let _viesData = null; // { valid, name, address }
 
   const form = el('form', { onsubmit: async (e) => {
     e.preventDefault();
@@ -196,8 +202,16 @@ function openForm(item){
     const payload = {
       nombre: fd.nombre, cif: fd.cif ? String(fd.cif).toUpperCase() : '',
       email: fd.email, telefono: fd.telefono, direccion: fd.direccion,
-      nivel: fd.nivel || 'estandar', notas: fd.notas
+      ciudad: fd.ciudad || '', contacto: fd.contacto || '',
+      nivel: fd.nivel || 'estandar', notas: fd.notas,
+      rgpdAceptado: _rgpd,
+      rgpdFecha: _rgpd ? (data.rgpdFecha || new Date().toISOString().slice(0,10)) : '',
+      viesVerificado: !!(_viesData && _viesData.valid),
+      viesFecha: _viesData && _viesData.valid ? new Date().toISOString().slice(0,10) : (data.viesFecha || '')
     };
+    if(!_rgpd && payload.nivel !== 'bloqueada'){
+      if(!confirm('La empresa no tiene RGPD aceptado. ¿Guardar igualmente?')) return;
+    }
     try{
       if(isEdit) await update('empresas', item.id, payload);
       else await create('empresas', payload);
@@ -208,10 +222,58 @@ function openForm(item){
 
   const grid = el('div', { class:'form-grid' });
   grid.appendChild(formField({ label:'Nombre', name:'nombre', value:data.nombre, required:true }));
-  grid.appendChild(formField({ label:'CIF / NIF', name:'cif', value:data.cif }));
+
+  // CIF con verificación VIES
+  const cifWrap = el('div', { class:'field-wrap' });
+  cifWrap.appendChild(el('label', { class:'field-label' }, 'CIF / VAT'));
+  const cifInputRow = el('div', { class:'flex gap-2', style:{ alignItems:'stretch' } });
+  const cifInput = el('input', {
+    type:'text', name:'cif', class:'field-input', value:data.cif || '',
+    style:{ textTransform:'uppercase' }
+  });
+  const viesBtn = el('button', {
+    type:'button', class:'btn btn-secondary btn-sm',
+    style:{ whiteSpace:'nowrap' },
+    onclick: async () => {
+      const cif = cifInput.value.trim();
+      if(!cif){ toast('Introduce un CIF primero', 'warn'); return; }
+      viesBtn.disabled = true;
+      viesBtn.textContent = 'Verificando…';
+      try{
+        const { verifyVAT } = await import('../vies.js');
+        const r = await verifyVAT(cif);
+        _viesData = r;
+        if(r.valid){
+          viesStatus.innerHTML = `<span style="color:#15803D;font-weight:600">✓ Verificada VIES</span> · ${r.name || ''} <span class="cell-mute">(${r.source})</span>`;
+          // Si VIES nos da el nombre y el formulario está vacío, lo rellenamos
+          if(r.name){
+            const nombreInput = form.querySelector('input[name="nombre"]');
+            if(nombreInput && !nombreInput.value) nombreInput.value = r.name;
+          }
+        } else {
+          viesStatus.innerHTML = `<span style="color:#DC2626">✕ No verificado</span> ${r.error ? '· ' + r.error : ''}`;
+        }
+      } catch(e){
+        viesStatus.innerHTML = `<span style="color:#DC2626">Error: ${e.message}</span>`;
+      } finally {
+        viesBtn.disabled = false;
+        viesBtn.textContent = '✓ Verificar VIES';
+      }
+    }
+  }, '✓ Verificar VIES');
+  cifInputRow.appendChild(cifInput);
+  cifInputRow.appendChild(viesBtn);
+  cifWrap.appendChild(cifInputRow);
+  const viesStatus = el('div', { class:'cell-mute', style:{ fontSize:'12px', marginTop:'4px', minHeight:'18px' } });
+  if(data.viesVerificado) viesStatus.innerHTML = `<span style="color:#15803D">✓ Verificada VIES</span> · ${data.viesFecha || ''}`;
+  cifWrap.appendChild(viesStatus);
+  grid.appendChild(cifWrap);
+
   grid.appendChild(formField({ label:'Email', name:'email', type:'email', value:data.email }));
   grid.appendChild(formField({ label:'Teléfono', name:'telefono', value:data.telefono }));
+  grid.appendChild(formField({ label:'Contacto', name:'contacto', value:data.contacto }));
   grid.appendChild(formField({ label:'Dirección', name:'direccion', value:data.direccion, full:true }));
+  grid.appendChild(formField({ label:'Ciudad', name:'ciudad', value:data.ciudad }));
   grid.appendChild(formField({ label:'Nivel', name:'nivel', value:data.nivel, options:[
     { value:'estandar', label:'Estándar' },
     { value:'verificada', label:'Verificada' },
@@ -219,6 +281,23 @@ function openForm(item){
   ]}));
   grid.appendChild(formField({ label:'Notas', name:'notas', type:'textarea', value:data.notas, full:true }));
   form.appendChild(grid);
+
+  // ── Sección RGPD ──
+  const rgpdSection = el('div', { class:'form-section' });
+  rgpdSection.appendChild(el('div', { class:'form-section-head' }, '📋 RGPD'));
+  const rgpdLabel = el('label', { class:'rgpd-check' },
+    el('input', {
+      type:'checkbox', checked: _rgpd ? 'checked' : null,
+      onchange: e => { _rgpd = e.target.checked; rgpdInfo.style.display = _rgpd ? '' : 'none'; }
+    }),
+    el('span', {}, 'La empresa ha aceptado el tratamiento de datos según RGPD'),
+  );
+  rgpdSection.appendChild(rgpdLabel);
+  const rgpdInfo = el('div', { class:'cell-mute', style:{ marginTop:'6px', fontSize:'11px', display: _rgpd ? '' : 'none' } },
+    data.rgpdFecha ? `Aceptado el ${data.rgpdFecha}` : 'Se registrará la fecha al guardar.'
+  );
+  rgpdSection.appendChild(rgpdInfo);
+  form.appendChild(rgpdSection);
 
   const footer = el('div', { class:'modal-foot' },
     el('button', { type:'button', class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),

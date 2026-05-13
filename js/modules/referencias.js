@@ -1,5 +1,6 @@
 // referencias.js — Referencias (Ingresos tipo 1) con campo Posición
-import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime } from '../utils.js';
+import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, chipTel } from '../utils.js';
+import { getDefaultEventoId } from '../utils.js';
 import { listLive, list, update, remove, createReferencia, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
@@ -8,6 +9,8 @@ import { attachAutocomplete, applyDataToForm, markAgendaArrived } from '../autoc
 import { scanPlate } from '../ocr.js';
 import { getHistory, logIncidencia, listIncidencias } from '../audit.js';
 import { logger } from '../logger.js';
+import { smartTable, savedFiltersBar } from '../table-helpers.js';
+import { openContactDriverModal } from '../contact-driver.js';
 
 let _container = null;
 let _items = [];
@@ -34,6 +37,10 @@ export async function init(container){
   _eventos = await list('eventos', { orderBy:'createdAt', order:'desc' });
   _conductores = await list('conductores', { orderBy:'nombre' });
   _empresas = await list('empresas', { orderBy:'nombre' });
+  // Aplicar evento favorito como filtro por defecto si no hay uno seleccionado
+  if(!_filterEvento){
+    _filterEvento = getDefaultEventoId(getCurrentProfile());
+  }
   render();
   listLive('referencias', { key: KEY_PREFIX+'all', orderBy:'createdAt', order:'desc', limit: 500 }, (items) => {
     _items = items;
@@ -100,76 +107,98 @@ function renderTable(){
   if(_filterEvento) filtered = filtered.filter(r => r.eventoId === _filterEvento);
   if(_search) filtered = filtered.filter(r => matchesSearch(_search, r.matricula, r.conductor, r.empresa, r.referencia));
 
+  // Barra de filtros guardados
+  t.appendChild(savedFiltersBar({
+    module:'referencias',
+    currentFilters: { estado:_filterEstado, eventoId:_filterEvento, search:_search },
+    onApply: f => {
+      if(f === null){ renderTable(); return; }
+      _filterEstado = f.estado || '';
+      _filterEvento = f.eventoId || '';
+      _search = f.search || '';
+      render();
+    }
+  }));
+
   if(filtered.length === 0){
     t.appendChild(emptyState({
       iconName:'referencias',
       title: _items.length === 0 ? 'Sin referencias' : 'Sin resultados',
-      message: _items.length === 0 ? 'Crea la primera referencia para empezar.' : 'Cambia los filtros o el término de búsqueda.'
+      message: _items.length === 0 ? 'Crea la primera referencia para empezar.' : 'Cambia los filtros o el término de búsqueda.',
+      columns: ['Pos.','Referencia','Matrícula','Conductor','Empresa','Hall','Estado','Entrada','Salida','Acciones']
     }));
     return;
   }
 
-  const wrap = el('div', { class:'table-wrap' });
-  const tbl = el('table', { class:'table' });
-  const thead = el('thead', {}, el('tr', {},
-    el('th',{},'Pos.'),
-    el('th',{},'Referencia'),
-    el('th',{},'Matrícula'),
-    el('th',{},'Conductor'),
-    el('th',{},'Empresa'),
-    el('th',{},'Hall'),
-    el('th',{},'Estado'),
-    el('th',{},'Entrada'),
-    el('th',{},'Salida'),
-    el('th',{},'Acciones')
-  ));
-  tbl.appendChild(thead);
-  const tb = el('tbody');
-  for(const r of filtered){
-    const ev = _eventos.find(e => e.id === r.eventoId);
-    const tr = el('tr', {},
-      el('td', {}, el('span', { class:`cell-pos ${r.posicionManual ? 'manual' : ''}`, title: r.posicionManual ? 'Posición manual' : 'Posición automática' }, String(r.posicion || '—'))),
-      el('td', { class:'cell-mute' }, r.referencia || ev?.nombre?.slice(0,8) || '—'),
-      el('td', { class:'cell-plate' }, r.matricula || '—'),
-      el('td', {}, r.conductor || '—'),
-      el('td', { class:'cell-mute' }, r.empresa || '—'),
-      el('td', {}, r.hall || '—'),
-      el('td', {}, statusBadge(r.estado || 'prerregistrado')),
-      el('td', { class:'cell-mute' }, r.horaEntrada || '—'),
-      el('td', { class:'cell-mute' }, r.horaSalida || '—'),
-      rowActions(r, p)
-    );
-    tb.appendChild(tr);
-  }
-  tbl.appendChild(tb);
-  wrap.appendChild(tbl);
-  t.appendChild(wrap);
+  const columns = [
+    { id:'posicion',  label:'Pos.',       render: r => el('span', { class:`cell-pos ${r.posicionManual ? 'manual' : ''}`, title: r.posicionManual ? 'Posición manual' : 'Posición automática' }, String(r.posicion || '—')) },
+    { id:'referencia',label:'Referencia', render: r => { const ev = _eventos.find(e => e.id === r.eventoId); return el('span', { class:'cell-mute' }, r.referencia || ev?.nombre?.slice(0,8) || '—'); } },
+    { id:'matricula', label:'Matrícula',  render: r => el('span', { class:'cell-plate' }, r.matricula || '—') },
+    { id:'conductor', label:'Conductor',  render: r => r.conductor || '—' },
+    { id:'empresa',   label:'Empresa',    render: r => el('span', { class:'cell-mute' }, r.empresa || '—') },
+    { id:'hall',      label:'Hall',       render: r => r.hall || '—' },
+    { id:'stand',     label:'Stand',      render: r => r.stand || '—', default:false },
+    { id:'estado',    label:'Estado',     render: r => statusBadge(r.estado || 'prerregistrado') },
+    { id:'horaEntrada', label:'Entrada',  render: r => el('span', { class:'cell-mute' }, r.horaEntrada || '—') },
+    { id:'horaSalida',  label:'Salida',   render: r => el('span', { class:'cell-mute' }, r.horaSalida || '—') },
+    { id:'telefono',  label:'Teléfono',   render: r => r.telefono ? chipTel(r.telefono) : '—', default:false },
+    { id:'notas',     label:'Notas',      render: r => el('span', { class:'cell-mute' }, (r.notas || '').slice(0,30) || '—'), default:false }
+  ];
+
+  t.appendChild(smartTable({
+    module:'referencias',
+    columns, rows: filtered,
+    detailRenderer: r => {
+      const ev = _eventos.find(e => e.id === r.eventoId);
+      const dl = el('div', { style:{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'8px 24px', fontSize:'13px'} });
+      const cell = (label, value) => el('div', {},
+        el('span', { class:'cell-mute', style:{fontSize:'11px', textTransform:'uppercase', display:'block'} }, label),
+        el('span', { style:{fontWeight:500} }, String(value || '—'))
+      );
+      dl.appendChild(cell('Evento', ev?.nombre));
+      dl.appendChild(cell('Posición', r.posicion));
+      dl.appendChild(cell('Matrícula', r.matricula));
+      dl.appendChild(cell('Conductor', r.conductor));
+      dl.appendChild(cell('Empresa', r.empresa));
+      dl.appendChild(cell('Teléfono', r.telefono));
+      dl.appendChild(cell('Hall · Stand', `${r.hall || '—'} · ${r.stand || '—'}`));
+      dl.appendChild(cell('Notas', r.notas));
+      return dl;
+    },
+    rowActions: r => rowActions(r, p)
+  }));
 }
 
 function rowActions(r, p){
-  const td = el('td', {}, el('div', { class:'row-actions' }));
-  const wrap = td.firstChild;
-
+  const wrap = el('div', { class:'row-actions' });
   if(canEdit(p)){
-    if(r.estado === 'salida'){
-      // ya salió
-    } else if(r.estado === 'dentro_fira'){
+    if(r.estado === 'dentro_fira'){
+      wrap.appendChild(el('button', { class:'btn btn-secondary btn-icon', title:'Registrar salida',
+        onclick: () => registrarSalida(r) }, el('span', { html: icon('exit') })));
+    } else if(r.estado !== 'salida'){
+      wrap.appendChild(el('button', { class:'btn btn-secondary btn-icon', title:'Registrar entrada',
+        onclick: () => registrarEntrada(r) }, el('span', { html: icon('enter') })));
+    }
+    // Botón contactar conductor (WhatsApp/SMS/Call/Email/Copy)
+    if(r.telefono || r.conductor){
       wrap.appendChild(el('button', {
-        class:'btn btn-secondary btn-icon',
-        title:'Registrar salida',
-        onclick: () => registrarSalida(r)
-      }, el('span', { html: icon('exit') })));
-    } else {
-      wrap.appendChild(el('button', {
-        class:'btn btn-secondary btn-icon',
-        title:'Registrar entrada',
-        onclick: () => registrarEntrada(r)
-      }, el('span', { html: icon('enter') })));
+        class:'btn btn-ghost btn-icon', title:'Contactar conductor (WhatsApp/SMS/Llamar)',
+        onclick: () => {
+          // Buscar idioma del conductor en la base
+          const c = _conductores.find(x =>
+            (x.nombre && x.nombre === r.conductor) ||
+            (x.matriculas || []).includes(r.matricula)
+          );
+          openContactDriverModal({
+            ...r,
+            eventoNombre: _eventos.find(e => e.id === r.eventoId)?.nombre,
+            conductorLang: c?.lang || 'es'
+          });
+        }
+      }, '💬'));
     }
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => openForm(r), title:'Editar' },
       el('span', { html: icon('edit') })));
-  }
-  if(canEdit(p)){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => openHistorial(r), title:'Historial / Incidencias' },
       el('span', { html: '📋' })));
   }
@@ -177,7 +206,7 @@ function rowActions(r, p){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => deleteItem(r), title:'Eliminar' },
       el('span', { html: icon('trash') })));
   }
-  return td;
+  return wrap;
 }
 
 async function openHistorial(r){
