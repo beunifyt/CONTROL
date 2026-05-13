@@ -1,15 +1,19 @@
 // ═══════════════════════════════════════════════════════════════
-// gemini.js — Cliente Google Gemini API (gratis hasta 60 req/min)
+// gemini.js — Cliente Google Gemini API (Free tier)
+//
+// Modelos Free tier:
+//   - gemini-2.0-flash:     200 req/día,  15 req/min  (calidad alta)
+//   - gemini-1.5-flash-8b:  1500 req/día, 15 req/min  ← RECOMENDADO
+//   - gemini-1.5-flash:     1500 req/día, 15 req/min
 //
 // Para activar:
 //   1. Ve a https://aistudio.google.com/app/apikey y crea una API key
 //   2. Añade en firebase-config.js:
 //        export const geminiApiKey = 'AIza...';
-//   3. Listo. El asistente usará automáticamente Gemini.
-//
-// Si no hay API key, los asistentes muestran mensaje de configuración.
 // ═══════════════════════════════════════════════════════════════
 import { logger } from './logger.js';
+
+const GEMINI_MODEL = 'gemini-1.5-flash-8b'; // 1500 req/día gratis
 
 let _apiKey = '';
 try{
@@ -22,7 +26,7 @@ export function isGeminiAvailable(){
   return !!_apiKey;
 }
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /**
  * Envía un prompt al asistente Gemini.
@@ -67,9 +71,26 @@ export async function chatWithGemini(systemPrompt, history, userMessage){
       body: JSON.stringify(body)
     });
     if(!resp.ok){
-      const err = await resp.text();
-      logger.warn('Gemini error', { status: resp.status, err });
-      throw new Error(`Gemini API error: ${resp.status}`);
+      let detail = '';
+      try{
+        const errJson = await resp.json();
+        detail = errJson?.error?.message || JSON.stringify(errJson);
+      } catch(_){
+        detail = await resp.text();
+      }
+      logger.warn('Gemini error', { status: resp.status, detail });
+
+      // Mensajes amigables según código
+      if(resp.status === 429){
+        throw new Error('Has superado el límite de Gemini Free (15 req/min · 1500 req/día). Espera 1 min o cambia de modelo. Detalle: ' + detail);
+      }
+      if(resp.status === 400){
+        throw new Error('Petición incorrecta. ' + detail);
+      }
+      if(resp.status === 403){
+        throw new Error('API key inválida o sin permisos. ' + detail);
+      }
+      throw new Error(`Gemini ${resp.status}: ${detail}`);
     }
     const data = await resp.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
