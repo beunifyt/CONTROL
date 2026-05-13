@@ -138,6 +138,7 @@ let _state = {
   // Imagen guía + trapezoide
   bgImage:null, bgOpacity:0.35, showGuide:true,
   bgTransform:{ tx:0, ty:0, rot:0, scale:1, skewX:0, skewY:0, persp:1000 },
+  bgEditMode:'off',  // off|move|rotate|warp — manipulación directa
   // Innovaciones
   snapToGrid:true,
   gridSize:1,         // 1 / 2 / 5 / 10 / 0(off)
@@ -151,6 +152,7 @@ let _state = {
   caducidadHoras:0,
   // Estado UI
   activeTab:'campos',
+  clientMode:false,    // Vista cliente: sin handlers, sin outlines, solo preview
   history:[]
 };
 
@@ -181,7 +183,7 @@ function saveStateToLocal(){
     const s = {};
     for(const k of ['modulo','eventoId','selectedRecordId','paperSize','paperOrient','font','labelMode',
                     'troquel','fieldLayout','ph1On','phrase1','ph2On','phrase2','ph3On','puerta3',
-                    'qrTracking','qrBase','bgImage','bgOpacity','showGuide','bgTransform','zoom','copies','language',
+                    'qrTracking','qrBase','bgImage','bgOpacity','showGuide','bgTransform','bgEditMode','zoom','copies','language',
                     'snapToGrid','gridSize','showGrid','showRuler','watermark','multiPerSheet','vehiculoAutoSelect','caducidadHoras',
                     'currentTemplateId']){
       s[k] = _state[k];
@@ -381,6 +383,20 @@ function renderTopbar(){
 
   row2.appendChild(el('div', { class:'flex-1' }));
 
+  // Modo vista cliente
+  row2.appendChild(el('button', {
+    class:`btn btn-sm ${_state.clientMode ? 'btn-primary' : 'btn-secondary'}`,
+    title: 'Vista cliente: oculta selección y guías para ver el pase tal cual lo verá el conductor',
+    onclick: () => { _state.clientMode = !_state.clientMode; _state.selectedFieldId = null; _state.selectedFieldIds = []; render(); }
+  }, _state.clientMode ? '✓ Vista cliente' : '👁 Vista cliente'));
+
+  // Vista previa real al imprimir
+  row2.appendChild(el('button', {
+    class:'btn btn-secondary btn-sm',
+    title:'Vista previa exacta como saldrá impreso',
+    onclick: openPrintPreview
+  }, '🔍 Previa'));
+
   row2.appendChild(el('button', { class:'btn btn-secondary btn-sm', onclick: openBatchPrint }, '🖨 Batch'));
   row2.appendChild(el('button', { class:'btn btn-primary', onclick: doPrint }, '🖨 Imprimir'));
 
@@ -499,25 +515,57 @@ function renderCanvas(){
     }
   });
 
-  // Background image con TRANSFORMACIÓN TRAPEZOIDAL/PERSPECTIVA
+  // Background image con TRANSFORMACIÓN TRAPEZOIDAL/PERSPECTIVA + manipulación directa
   if(_state.bgImage && _state.showGuide){
     const tr = _state.bgTransform;
-    paper.appendChild(el('div', {
+    const editing = _state.bgEditMode && _state.bgEditMode !== 'off';
+
+    const bgLayer = el('div', {
+      class: editing ? 'bg-edit-layer' : '',
       style:{
-        position:'absolute', inset:0, zIndex:'1', pointerEvents:'none',
+        position:'absolute', inset:0, zIndex: editing ? '8' : '1',
+        pointerEvents: editing ? 'auto' : 'none',
         perspective: tr.persp + 'px'
       }
-    },
-      el('img', {
-        class:'canvas-bg-img',
-        src: _state.bgImage,
-        style:{
-          opacity: String(_state.bgOpacity),
-          transform: `translate(${tr.tx}%, ${tr.ty}%) rotate(${tr.rot}deg) scale(${tr.scale}) skew(${tr.skewX}deg, ${tr.skewY}deg)`,
-          transformOrigin:'center'
-        }
-      })
-    ));
+    });
+
+    const img = el('img', {
+      class:'canvas-bg-img',
+      src: _state.bgImage,
+      style:{
+        opacity: String(_state.bgOpacity),
+        transform: `translate(${tr.tx}%, ${tr.ty}%) rotate(${tr.rot}deg) scale(${tr.scale}) skew(${tr.skewX}deg, ${tr.skewY}deg)`,
+        transformOrigin:'center',
+        cursor: editing ? (_state.bgEditMode === 'move' ? 'move' : _state.bgEditMode === 'rotate' ? 'grab' : 'default') : 'default',
+        touchAction:'none'
+      }
+    });
+
+    if(editing){
+      img.addEventListener('pointerdown', e => startBgManipulation(e, paper));
+    }
+    bgLayer.appendChild(img);
+
+    // Marca esquinas si modo warp (perspective)
+    if(_state.bgEditMode === 'warp'){
+      for(const corner of ['tl', 'tr', 'bl', 'br']){
+        const pos = {
+          tl:{ left:'10%',  top:'10%'    },
+          tr:{ right:'10%', top:'10%'    },
+          bl:{ left:'10%',  bottom:'10%' },
+          br:{ right:'10%', bottom:'10%' }
+        }[corner];
+        const handle = el('div', {
+          class:'bg-corner-handle',
+          'data-corner': corner,
+          style: { ...pos, position:'absolute', touchAction:'none' }
+        });
+        handle.addEventListener('pointerdown', e => startBgCornerDrag(e, corner, paper));
+        bgLayer.appendChild(handle);
+      }
+    }
+
+    paper.appendChild(bgLayer);
   }
 
   // Watermark
@@ -578,6 +626,35 @@ function renderCanvas(){
   return wrap;
 }
 
+// Actualiza la posición de un campo en el DOM SIN re-render completo.
+// Esto da arrastre fluido píxel-por-píxel sin trabajo extra de React-like.
+function updateFieldNodeFast(fid){
+  const conf = _state.fieldLayout[fid];
+  if(!conf) return;
+  const node = document.querySelector(`.canvas-field[data-fid="${fid}"]`);
+  if(!node) return;
+  node.style.left = conf.x + '%';
+  node.style.top = conf.y + '%';
+  node.setAttribute('data-pos', `${conf.x.toFixed(1)}, ${conf.y.toFixed(1)}`);
+}
+
+// Pinta o quita las guías de alineación rojas SIN re-render.
+function updateAlignGuidesFast(paper, gx, gy){
+  paper.querySelectorAll('.align-guide').forEach(n => n.remove());
+  if(gx !== null){
+    const g = document.createElement('div');
+    g.className = 'align-guide guide-v';
+    g.style.left = gx + '%';
+    paper.appendChild(g);
+  }
+  if(gy !== null){
+    const g = document.createElement('div');
+    g.className = 'align-guide guide-h';
+    g.style.top = gy + '%';
+    paper.appendChild(g);
+  }
+}
+
 // Calcula guías de alineación: cuando arrastras, si te acercas
 // a la misma X o Y de otro campo, aparece una línea roja.
 function handleAlignGuides(e, paper){
@@ -629,41 +706,173 @@ function renderField(fid, conf, data){
   }
 
   const isSelected = _state.selectedFieldId === fid;
+  const isMultiSelected = _state.selectedFieldIds.includes(fid);
+  const zIdx = conf.zIndex != null ? conf.zIndex : 10;
+
+  // Modo "vista cliente": no editable, sin outline, sin handlers
+  if(_state.clientMode){
+    const view = el('div', {
+      class: `canvas-field ${conf.highlight ? 'highlight' : ''}`,
+      style: {
+        left: conf.x + '%',
+        top: conf.y + '%',
+        fontSize: (conf.fontSize || def.defSize) + 'px',
+        fontWeight: conf.bold ? 'bold' : 'normal',
+        color: conf.color || '#000',
+        transform: conf.rotation ? `rotate(${conf.rotation}deg)` : '',
+        zIndex: String(zIdx),
+        pointerEvents:'none', cursor:'default'
+      }
+    });
+    if(fid === 'qr' || fid === 'barcode' || fid === 'logo' || fid === 'recintoLogo'){
+      // mismo render que el bloque normal abajo (lo reutilizamos via continuación)
+    } else {
+      view.appendChild(document.createTextNode(value));
+    }
+    return view;
+  }
+
   const node = el('div', {
-    class: `canvas-field ${isSelected ? 'selected' : ''} ${conf.highlight ? 'highlight' : ''}`,
+    class: `canvas-field ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${conf.highlight ? 'highlight' : ''}`,
     'data-pos': `${conf.x.toFixed(1)}, ${conf.y.toFixed(1)}`,
+    'data-fid': fid,
     style: {
       left: conf.x + '%',
       top: conf.y + '%',
       fontSize: (conf.fontSize || def.defSize) + 'px',
       fontWeight: conf.bold ? 'bold' : 'normal',
       color: conf.color || '#000',
-      transform: conf.rotation ? `rotate(${conf.rotation}deg)` : ''
+      transform: conf.rotation ? `rotate(${conf.rotation}deg)` : '',
+      zIndex: String(zIdx),
+      touchAction:'none'
     },
-    onmousedown: e => {
-      e.stopPropagation();
-      _state.selectedFieldId = fid;
-      _state.activeTab = 'editar';
+    // Ctrl+wheel: escalar
+    onwheel: e => {
+      if(!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 2 : -2;
+      conf.fontSize = Math.max(8, Math.min(120, (conf.fontSize || def.defSize) + delta));
       render();
     },
-    draggable:'true',
-    ondragstart: e => {
-      e.dataTransfer.setData('move-field', fid);
-      e.dataTransfer.effectAllowed = 'move';
-      // Imagen-fantasma transparente: arrastre fluido
-      const ghost = document.createElement('div');
-      ghost.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
-      document.body.appendChild(ghost);
-      e.dataTransfer.setDragImage(ghost, 0, 0);
-      setTimeout(() => ghost.remove(), 0);
-      // Activar crosshair en paper
-      const paper = e.target.closest('.canvas-paper');
-      if(paper) paper.classList.add('dragging');
-    },
-    ondragend: e => {
-      const paper = e.target.closest('.canvas-paper');
-      if(paper) paper.classList.remove('dragging');
-      _state.alignGuides = { x:null, y:null };
+    onpointerdown: e => {
+      e.stopPropagation();
+      e.preventDefault();
+      const paper = node.closest('.canvas-paper');
+      if(!paper) return;
+
+      // Selección
+      if(e.shiftKey && e.button === 0){
+        const i = _state.selectedFieldIds.indexOf(fid);
+        if(i >= 0) _state.selectedFieldIds.splice(i, 1);
+        else _state.selectedFieldIds.push(fid);
+        _state.selectedFieldId = fid;
+        _state.activeTab = 'editar';
+        render();
+        return;
+      } else if(!_state.selectedFieldIds.includes(fid)){
+        _state.selectedFieldId = fid;
+        _state.selectedFieldIds = [fid];
+        _state.activeTab = 'editar';
+        render();
+      } else {
+        _state.selectedFieldId = fid;
+      }
+
+      // Alt-drag duplica AL INICIAR
+      let workingId = fid;
+      let workingConf = conf;
+      let isClone = false;
+      if(e.altKey){
+        let n = 2;
+        let newKey = `${fid}_copy_${n}`;
+        while(_state.fieldLayout[newKey]){ n++; newKey = `${fid}_copy_${n}`; }
+        _state.fieldLayout[newKey] = JSON.parse(JSON.stringify(conf));
+        workingId = newKey;
+        workingConf = _state.fieldLayout[newKey];
+        _state.selectedFieldId = newKey;
+        _state.selectedFieldIds = [newKey];
+        isClone = true;
+      }
+
+      // Arrastre fluido pointer-based (sin HTML5 drag)
+      pushHistory();
+      paper.classList.add('dragging');
+      const rect = paper.getBoundingClientRect();
+      const startX = e.clientX, startY = e.clientY;
+      const startConfX = workingConf.x, startConfY = workingConf.y;
+
+      // Cache otras posiciones para snap (cuando Shift)
+      const otherConfs = Object.entries(_state.fieldLayout)
+        .filter(([k, c]) => k !== workingId && !c.hidden)
+        .map(([k, c]) => c);
+
+      // Si es selección múltiple, guardamos snapshot de todas
+      const multiSnap = _state.selectedFieldIds.length > 1 && _state.selectedFieldIds.includes(workingId)
+        ? _state.selectedFieldIds.map(id => ({ id, conf: _state.fieldLayout[id], x0: _state.fieldLayout[id]?.x, y0: _state.fieldLayout[id]?.y })).filter(s => s.conf)
+        : null;
+
+      const onMove = (ev) => {
+        let dx = ((ev.clientX - startX) / rect.width)  * 100;
+        let dy = ((ev.clientY - startY) / rect.height) * 100;
+
+        // SHIFT pulsado: activa snap (Word/Figma style invertido)
+        if(ev.shiftKey){
+          if(_state.gridSize > 0){
+            const nx = Math.round((startConfX + dx) / _state.gridSize) * _state.gridSize;
+            const ny = Math.round((startConfY + dy) / _state.gridSize) * _state.gridSize;
+            dx = nx - startConfX;
+            dy = ny - startConfY;
+          }
+        }
+
+        const newX = Math.max(0, Math.min(95, startConfX + dx));
+        const newY = Math.max(0, Math.min(95, startConfY + dy));
+
+        // Guías de alineación visuales (solo con Shift)
+        let guideX = null, guideY = null;
+        if(ev.shiftKey){
+          const TOL = 1.5;
+          for(const oc of otherConfs){
+            if(Math.abs(oc.x - newX) < TOL){ guideX = oc.x; }
+            if(Math.abs(oc.y - newY) < TOL){ guideY = oc.y; }
+          }
+          for(const ref of [0, 50, 95]){
+            if(Math.abs(ref - newX) < TOL) guideX = ref;
+            if(Math.abs(ref - newY) < TOL) guideY = ref;
+          }
+        }
+
+        // Aplicar
+        if(multiSnap){
+          const ddx = newX - startConfX, ddy = newY - startConfY;
+          for(const s of multiSnap){
+            s.conf.x = Math.max(0, Math.min(95, s.x0 + ddx));
+            s.conf.y = Math.max(0, Math.min(95, s.y0 + ddy));
+          }
+        } else {
+          workingConf.x = guideX !== null ? guideX : newX;
+          workingConf.y = guideY !== null ? guideY : newY;
+        }
+
+        // Actualizar SOLO el nodo afectado y guías (sin re-render completo) → fluido
+        updateFieldNodeFast(workingId);
+        if(multiSnap){
+          for(const s of multiSnap){ if(s.id !== workingId) updateFieldNodeFast(s.id); }
+        }
+        updateAlignGuidesFast(paper, guideX, guideY);
+      };
+
+      const onUp = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        paper.classList.remove('dragging');
+        // Limpiar guías y forzar render normal una vez
+        updateAlignGuidesFast(paper, null, null);
+        render();
+      };
+
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
     }
   });
 
@@ -761,21 +970,19 @@ function evalCondition(cond, data){
 function onCanvasDrop(e, paper){
   e.preventDefault();
   _state.alignGuides = { x:null, y:null };
-  const moveId = e.dataTransfer.getData('move-field');
-  const newId = e.dataTransfer.getData('new-field');
+  const moveId  = e.dataTransfer.getData('move-field');
+  const newId   = e.dataTransfer.getData('new-field');
+  const cloneId = e.dataTransfer.getData('clone-field');
   const rect = paper.getBoundingClientRect();
   let x = ((e.clientX - rect.left) / rect.width) * 100;
   let y = ((e.clientY - rect.top) / rect.height) * 100;
   x = Math.max(0, Math.min(95, x));
   y = Math.max(0, Math.min(95, y));
 
-  // Snap configurable: 1/2/5/10/0(off)
   if(_state.snapToGrid && _state.gridSize > 0){
     x = Math.round(x / _state.gridSize) * _state.gridSize;
     y = Math.round(y / _state.gridSize) * _state.gridSize;
   }
-
-  // Snap a guías (campos cercanos en mismo eje)
   if(_state.snapToGrid){
     const TOL = 1.5;
     for(const [fid, conf] of Object.entries(_state.fieldLayout)){
@@ -790,10 +997,34 @@ function onCanvasDrop(e, paper){
   }
 
   pushHistory();
-  if(moveId){
+  if(cloneId){
+    // Alt-drag: duplicar — busca un id libre tipo "<original>_copy_N"
+    const orig = _state.fieldLayout[cloneId];
+    if(orig){
+      let n = 2;
+      let newKey = `${cloneId}_copy_${n}`;
+      while(_state.fieldLayout[newKey]){ n++; newKey = `${cloneId}_copy_${n}`; }
+      _state.fieldLayout[newKey] = { ...JSON.parse(JSON.stringify(orig)), x, y };
+      _state.selectedFieldId = newKey;
+      toast('Campo duplicado', 'ok');
+    }
+  } else if(moveId){
     if(_state.fieldLayout[moveId]){
-      _state.fieldLayout[moveId].x = x;
-      _state.fieldLayout[moveId].y = y;
+      const oldX = _state.fieldLayout[moveId].x;
+      const oldY = _state.fieldLayout[moveId].y;
+      const dx = x - oldX, dy = y - oldY;
+      // Si hay selección múltiple, mover todos los seleccionados juntos
+      if(_state.selectedFieldIds.length > 1 && _state.selectedFieldIds.includes(moveId)){
+        for(const sid of _state.selectedFieldIds){
+          const c = _state.fieldLayout[sid];
+          if(!c) continue;
+          c.x = Math.max(0, Math.min(95, c.x + dx));
+          c.y = Math.max(0, Math.min(95, c.y + dy));
+        }
+      } else {
+        _state.fieldLayout[moveId].x = x;
+        _state.fieldLayout[moveId].y = y;
+      }
     }
   } else if(newId){
     const def = FIELDS[newId];
@@ -804,9 +1035,11 @@ function onCanvasDrop(e, paper){
       bold: !!def.defBold,
       highlight: !!def.defHighlight,
       color:'#000',
-      rotation:0
+      rotation:0,
+      zIndex: 10
     };
     _state.selectedFieldId = newId;
+    _state.selectedFieldIds = [newId];
     _state.activeTab = 'editar';
   }
   render();
@@ -816,7 +1049,7 @@ function onCanvasDrop(e, paper){
 function renderRightCol(){
   const col = el('div', { class:'print-col print-col-right' });
   const tabs = el('div', { class:'tab-strip' });
-  for(const t of [['campos','📋 Campos'],['editar','✎ Editar'],['config','⚙ Config']]){
+  for(const t of [['campos','📋 Campos'],['editar','✎ Editar'],['config','⚙ Config'],['guia','🖼 Guía']]){
     tabs.appendChild(el('button', {
       class: _state.activeTab === t[0] ? 'active' : '',
       onclick: () => { _state.activeTab = t[0]; render(); }
@@ -827,9 +1060,205 @@ function renderRightCol(){
   const body = el('div', { class:'print-col-body' });
   if(_state.activeTab === 'campos') body.appendChild(renderCamposTab());
   else if(_state.activeTab === 'editar') body.appendChild(renderEditarTab());
+  else if(_state.activeTab === 'guia') body.appendChild(renderGuiaTab());
   else body.appendChild(renderConfigTab());
   col.appendChild(body);
   return col;
+}
+
+// Tab Guía — manipulación directa de la imagen de fondo + sliders complementarios
+function renderGuiaTab(){
+  const wrap = el('div', {});
+
+  if(!_state.bgImage){
+    wrap.appendChild(el('div', { class:'config-card' },
+      el('div', { class:'config-card-head' }, '🖼 Imagen guía'),
+      el('p', { class:'config-card-desc' }, 'Sube una foto del pase real para alinear los campos. Podrás moverla, escalarla, rotarla e incluso corregir la perspectiva trapezoidal arrastrando directamente sobre la imagen.'),
+      el('input', {
+        type:'file', accept:'image/*', id:'__bg_file_guia',
+        style:{ display:'none' },
+        onchange: async e => {
+          const file = e.target.files[0]; if(!file) return;
+          _state.bgImage = await compressImage(file);
+          render();
+        }
+      }),
+      el('button', { class:'btn btn-secondary btn-sm w-full',
+        onclick: () => document.getElementById('__bg_file_guia').click()
+      }, '🖼 Cargar imagen guía')
+    ));
+    return wrap;
+  }
+
+  // Hay imagen. Mostramos info + sliders + controles de manipulación directa
+  wrap.appendChild(el('div', { class:'edit-field-title' },
+    el('span', {}, '🖼 Editar imagen guía')
+  ));
+
+  // Modo de manipulación directa
+  wrap.appendChild(el('label', { class:'edit-label' }, 'Modo manipulación directa sobre la imagen'));
+  const modeRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'4px', marginBottom:'10px' } });
+  const modes = [
+    ['off',   '🚫', 'Desactivado'],
+    ['move',  '✥',  'Mover'],
+    ['rotate','↻',  'Rotar'],
+    ['warp',  '◇',  'Perspectiva (4 esquinas)']
+  ];
+  for(const [val, ico, title] of modes){
+    modeRow.appendChild(el('button', {
+      class:`btn btn-sm ${_state.bgEditMode === val ? 'btn-primary' : 'btn-secondary'}`,
+      title,
+      style:{ padding:'8px 4px', fontSize:'16px' },
+      onclick: () => { _state.bgEditMode = val; render(); }
+    }, ico));
+  }
+  wrap.appendChild(modeRow);
+
+  if(_state.bgEditMode && _state.bgEditMode !== 'off'){
+    const labels = {
+      move:   '✥ Arrastra la imagen sobre el papel para moverla.',
+      rotate: '↻ Arrastra circularmente sobre la imagen para rotar.',
+      warp:   '◇ Arrastra cada esquina de la imagen para deformarla en trapezoide.'
+    };
+    wrap.appendChild(el('p', { class:'cell-mute', style:{fontSize:'12px', marginBottom:'12px', padding:'8px', background:'var(--surface-2)', borderRadius:'6px'} },
+      labels[_state.bgEditMode] || ''));
+  }
+
+  // Opacidad
+  const tr = _state.bgTransform;
+  wrap.appendChild(el('label', { class:'edit-label' }, `Opacidad: ${Math.round(_state.bgOpacity * 100)}%`));
+  wrap.appendChild(el('input', {
+    type:'range', min:'5', max:'100', step:'5',
+    value: String(Math.round(_state.bgOpacity * 100)),
+    style:{ width:'100%' },
+    oninput: e => { _state.bgOpacity = Number(e.target.value)/100; updateBgImageFast(); }
+  }));
+
+  // Slider helper — actualiza imagen sin re-renderizar el panel (fix bug "salta")
+  const sliderRow = (label, key, min, max, step, unit) => {
+    const valSpan = el('span', { style:{fontFamily:'monospace', fontSize:'11px', color:'var(--text-3)'} }, tr[key] + unit);
+    const lbl = el('label', { class:'edit-label', style:{marginTop:'10px', display:'flex', justifyContent:'space-between', alignItems:'center'} },
+      el('span', {}, label),
+      valSpan
+    );
+    const input = el('input', {
+      type:'range', min:String(min), max:String(max), step:String(step),
+      value: String(tr[key]),
+      style:{ width:'100%' },
+      oninput: e => {
+        tr[key] = Number(e.target.value);
+        valSpan.textContent = tr[key] + unit;
+        updateBgImageFast();
+      }
+    });
+    wrap.appendChild(lbl);
+    wrap.appendChild(input);
+  };
+
+  wrap.appendChild(el('div', { class:'config-section-head', style:{marginTop:'14px'} }, 'AJUSTE FINO (sliders)'));
+  sliderRow('Rotación', 'rot',   -180, 180, 0.5, '°');
+  sliderRow('Escala',   'scale', 0.3,  3,   0.05, 'x');
+  sliderRow('Mover X',  'tx',    -50,  50,  0.5, '%');
+  sliderRow('Mover Y',  'ty',    -50,  50,  0.5, '%');
+  sliderRow('Inclinar X (trapezoide)', 'skewX', -45, 45, 0.5, '°');
+  sliderRow('Inclinar Y (trapezoide)', 'skewY', -45, 45, 0.5, '°');
+
+  wrap.appendChild(el('button', { class:'btn btn-ghost btn-sm w-full', style:{marginTop:'12px'},
+    onclick: () => {
+      _state.bgTransform = { tx:0, ty:0, rot:0, scale:1, skewX:0, skewY:0, persp:1000 };
+      render();
+    }
+  }, '↻ Restablecer ajustes'));
+
+  wrap.appendChild(el('button', { class:'btn btn-danger btn-sm w-full', style:{marginTop:'4px'},
+    onclick: () => {
+      _state.bgImage = null;
+      _state.bgTransform = { tx:0, ty:0, rot:0, scale:1, skewX:0, skewY:0, persp:1000 };
+      _state.bgEditMode = 'off';
+      render();
+    }
+  }, '✕ Quitar imagen'));
+
+  return wrap;
+}
+
+// Actualiza la imagen de fondo en el DOM sin re-render del panel
+// (esto era el bug que hacía "saltar" los sliders al inicio).
+function updateBgImageFast(){
+  const img = document.querySelector('.canvas-bg-img');
+  if(!img) return;
+  const tr = _state.bgTransform;
+  img.style.opacity = String(_state.bgOpacity);
+  img.style.transform = `translate(${tr.tx}%, ${tr.ty}%) rotate(${tr.rot}deg) scale(${tr.scale}) skew(${tr.skewX}deg, ${tr.skewY}deg)`;
+}
+
+// Manipulación directa: mover / rotar imagen de fondo arrastrándola
+function startBgManipulation(e, paper){
+  e.stopPropagation();
+  e.preventDefault();
+  const tr = _state.bgTransform;
+  const rect = paper.getBoundingClientRect();
+  const cx = rect.left + rect.width  / 2;
+  const cy = rect.top  + rect.height / 2;
+
+  const startTX = tr.tx, startTY = tr.ty;
+  const startRot = tr.rot;
+  const startX = e.clientX, startY = e.clientY;
+  const startAngle = Math.atan2(startY - cy, startX - cx) * 180 / Math.PI;
+  const mode = _state.bgEditMode;
+
+  const onMove = (ev) => {
+    if(mode === 'move'){
+      const dx = ((ev.clientX - startX) / rect.width)  * 100;
+      const dy = ((ev.clientY - startY) / rect.height) * 100;
+      tr.tx = +(startTX + dx).toFixed(1);
+      tr.ty = +(startTY + dy).toFixed(1);
+    } else if(mode === 'rotate'){
+      const ang = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+      tr.rot = +(startRot + (ang - startAngle)).toFixed(1);
+    }
+    updateBgImageFast();
+  };
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    render(); // sync sliders del panel
+  };
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+// Arrastrar esquinas → modificar skewX / skewY (efecto trapezoidal)
+function startBgCornerDrag(e, corner, paper){
+  e.stopPropagation();
+  e.preventDefault();
+  const tr = _state.bgTransform;
+  const rect = paper.getBoundingClientRect();
+  const startX = e.clientX, startY = e.clientY;
+  const startSkewX = tr.skewX, startSkewY = tr.skewY;
+  const startScale = tr.scale;
+
+  const onMove = (ev) => {
+    const dx = ((ev.clientX - startX) / rect.width)  * 100;
+    const dy = ((ev.clientY - startY) / rect.height) * 100;
+    // Mapeo: cada esquina afecta skew según su orientación
+    let sx = startSkewX, sy = startSkewY, sc = startScale;
+    if(corner === 'tl'){ sx = startSkewX + dx * 0.5; sy = startSkewY + dy * 0.5; sc = startScale - (dx + dy) * 0.005; }
+    if(corner === 'tr'){ sx = startSkewX - dx * 0.5; sy = startSkewY + dy * 0.5; sc = startScale + (dx - dy) * 0.005; }
+    if(corner === 'bl'){ sx = startSkewX + dx * 0.5; sy = startSkewY - dy * 0.5; sc = startScale - (dx - dy) * 0.005; }
+    if(corner === 'br'){ sx = startSkewX - dx * 0.5; sy = startSkewY - dy * 0.5; sc = startScale + (dx + dy) * 0.005; }
+    tr.skewX = +Math.max(-45, Math.min(45, sx)).toFixed(1);
+    tr.skewY = +Math.max(-45, Math.min(45, sy)).toFixed(1);
+    tr.scale = +Math.max(0.3, Math.min(3, sc)).toFixed(2);
+    updateBgImageFast();
+  };
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    render();
+  };
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
 }
 
 // Tab Campos
@@ -895,6 +1324,38 @@ function renderCamposTab(){
 // Tab Editar
 function renderEditarTab(){
   const wrap = el('div', {});
+
+  // ── Acciones de selección múltiple ──
+  if(_state.selectedFieldIds.length > 1){
+    wrap.appendChild(el('div', { class:'edit-multi-bar' },
+      el('span', { class:'edit-multi-count' }, `${_state.selectedFieldIds.length} campos seleccionados`),
+      el('button', { class:'btn btn-ghost btn-sm', onclick: () => { _state.selectedFieldIds = [_state.selectedFieldId]; render(); }, title:'Limpiar selección' }, '✕')
+    ));
+
+    // Alinear
+    wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'8px'} }, 'Alinear'));
+    const alignRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(6, 1fr)', gap:'4px' } });
+    const alignBtn = (sym, title, fn) => alignRow.appendChild(el('button', { class:'btn btn-secondary btn-sm', title, onclick: fn, style:{padding:'6px 4px'} }, sym));
+    alignBtn('⫷', 'Izquierda',     () => alignSelected('left'));
+    alignBtn('═', 'Centro H',       () => alignSelected('centerH'));
+    alignBtn('⫸', 'Derecha',       () => alignSelected('right'));
+    alignBtn('⫶', 'Arriba',         () => alignSelected('top'));
+    alignBtn('—', 'Centro V',       () => alignSelected('centerV'));
+    alignBtn('⫶', 'Abajo',          () => alignSelected('bottom'));
+    wrap.appendChild(alignRow);
+
+    // Distribuir (necesita ≥3)
+    if(_state.selectedFieldIds.length >= 3){
+      wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'8px'} }, 'Distribuir uniformemente'));
+      const distRow = el('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px' } });
+      distRow.appendChild(el('button', { class:'btn btn-secondary btn-sm', onclick: () => distributeSelected('horizontal') }, '↔ Horizontal'));
+      distRow.appendChild(el('button', { class:'btn btn-secondary btn-sm', onclick: () => distributeSelected('vertical')   }, '↕ Vertical'));
+      wrap.appendChild(distRow);
+    }
+
+    wrap.appendChild(el('div', { class:'edit-multi-divider' }));
+  }
+
   if(!_state.selectedFieldId){
     wrap.appendChild(el('div', { class:'empty-mini' }, 'Selecciona un campo del canvas para editarlo.'));
     return wrap;
@@ -908,8 +1369,46 @@ function renderEditarTab(){
     el('span', {}, def.ico + ' ' + def.label)
   ));
 
+  // ── Acciones rápidas: copiar formato + capas Z ──
+  const quickRow = el('div', { class:'edit-quick-row' });
+
+  quickRow.appendChild(el('button', {
+    class:`btn btn-sm ${_state.clipboardStyle ? 'btn-primary' : 'btn-secondary'}`,
+    title: _state.clipboardStyle ? 'Pegar formato copiado' : 'Copiar formato de este campo',
+    onclick: () => {
+      if(_state.clipboardStyle){
+        // pegar
+        Object.assign(conf, _state.clipboardStyle, { x: conf.x, y: conf.y });
+        toast('Formato pegado', 'ok');
+      } else {
+        // copiar
+        const { x, y, ...style } = conf;
+        _state.clipboardStyle = JSON.parse(JSON.stringify(style));
+        toast('Formato copiado · selecciona otro campo y pega', 'info');
+      }
+      render();
+    }
+  }, _state.clipboardStyle ? '📋 Pegar formato' : '🎨 Copiar formato'));
+
+  if(_state.clipboardStyle){
+    quickRow.appendChild(el('button', { class:'btn btn-ghost btn-sm', title:'Limpiar formato copiado',
+      onclick: () => { _state.clipboardStyle = null; render(); }
+    }, '✕'));
+  }
+
+  wrap.appendChild(quickRow);
+
+  // Capas Z
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'8px'} }, `Capa Z: ${conf.zIndex != null ? conf.zIndex : 10}`));
+  const zRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'4px' } });
+  zRow.appendChild(el('button', { class:'btn btn-secondary btn-sm', title:'Al fondo',  onclick: () => { setZ(fid, 'bottom'); render(); } }, '⤓ Fondo'));
+  zRow.appendChild(el('button', { class:'btn btn-secondary btn-sm', title:'Atrás',     onclick: () => { setZ(fid, 'back');   render(); } }, '↓'));
+  zRow.appendChild(el('button', { class:'btn btn-secondary btn-sm', title:'Adelante',  onclick: () => { setZ(fid, 'front');  render(); } }, '↑'));
+  zRow.appendChild(el('button', { class:'btn btn-secondary btn-sm', title:'Al frente', onclick: () => { setZ(fid, 'top');    render(); } }, '⤒ Frente'));
+  wrap.appendChild(zRow);
+
   // Tamaño fuente
-  wrap.appendChild(el('label', { class:'edit-label' }, 'Tamaño fuente'));
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'12px'} }, 'Tamaño fuente'));
   const sizeRow = el('div', { class:'edit-size-row' });
   sizeRow.appendChild(el('button', { class:'btn-size', onclick: () => { conf.fontSize = Math.max(8, (conf.fontSize || def.defSize) - 2); render(); } }, '−'));
   sizeRow.appendChild(el('span', { class:'edit-size-val' }, (conf.fontSize || def.defSize) + 'px'));
@@ -1106,43 +1605,7 @@ function renderConfigTab(){
     }, '✕ Quitar imagen') : null
   ));
 
-  // ── Corrector trapezoidal / perspectiva de la imagen guía ──
-  if(_state.bgImage){
-    wrap.appendChild(el('div', { class:'config-section-head', style:{marginTop:'14px'} }, 'CORREGIR IMAGEN GUÍA'));
-    wrap.appendChild(el('p', { class:'cell-mute', style:{fontSize:'11px', marginTop:'-4px', marginBottom:'8px'} },
-      'Endereza fotos torcidas y corrige perspectiva.'));
-
-    const tr = _state.bgTransform;
-
-    const slider = (label, key, min, max, step=1, unit='') => {
-      const lbl = el('label', { class:'edit-label', style:{marginTop:'8px', display:'flex', justifyContent:'space-between'} },
-        el('span', {}, label),
-        el('span', { style:{fontFamily:'monospace', fontSize:'11px', color:'var(--text-3)'} }, tr[key] + unit)
-      );
-      const input = el('input', {
-        type:'range', min:String(min), max:String(max), step:String(step),
-        value: String(tr[key]),
-        style:{ width:'100%' },
-        oninput: e => { tr[key] = Number(e.target.value); render(); }
-      });
-      wrap.appendChild(lbl);
-      wrap.appendChild(input);
-    };
-
-    slider('Rotación', 'rot', -180, 180, 0.5, '°');
-    slider('Escala', 'scale', 0.3, 3, 0.05, 'x');
-    slider('Mover X', 'tx', -50, 50, 0.5, '%');
-    slider('Mover Y', 'ty', -50, 50, 0.5, '%');
-    slider('Inclinar X (trapezoide)', 'skewX', -45, 45, 0.5, '°');
-    slider('Inclinar Y (trapezoide)', 'skewY', -45, 45, 0.5, '°');
-
-    wrap.appendChild(el('button', { class:'btn btn-ghost btn-sm w-full', style:{marginTop:'8px'},
-      onclick: () => {
-        _state.bgTransform = { tx:0, ty:0, rot:0, scale:1, skewX:0, skewY:0, persp:1000 };
-        render();
-      }
-    }, '↻ Restablecer corrección'));
-  }
+  // (El editor de imagen guía / trapezoide vive en su propia pestaña "Guía")
 
   // Marca de agua
   wrap.appendChild(renderToggle('Marca de agua', _state.watermark.enabled, v => { _state.watermark.enabled = v; render(); }));
@@ -1448,6 +1911,124 @@ function recordPrintStat(templateId){
   } catch(_){}
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ACCIONES MULTI-SELECCIÓN (Word-like)
+// ═══════════════════════════════════════════════════════════════
+
+function alignSelected(mode){
+  const ids = _state.selectedFieldIds.filter(id => _state.fieldLayout[id]);
+  if(ids.length < 2) return;
+  pushHistory();
+  const confs = ids.map(id => _state.fieldLayout[id]);
+
+  if(mode === 'left'){
+    const minX = Math.min(...confs.map(c => c.x));
+    confs.forEach(c => c.x = minX);
+  } else if(mode === 'right'){
+    const maxX = Math.max(...confs.map(c => c.x));
+    confs.forEach(c => c.x = maxX);
+  } else if(mode === 'centerH'){
+    const avg = confs.reduce((a,c) => a + c.x, 0) / confs.length;
+    confs.forEach(c => c.x = avg);
+  } else if(mode === 'top'){
+    const minY = Math.min(...confs.map(c => c.y));
+    confs.forEach(c => c.y = minY);
+  } else if(mode === 'bottom'){
+    const maxY = Math.max(...confs.map(c => c.y));
+    confs.forEach(c => c.y = maxY);
+  } else if(mode === 'centerV'){
+    const avg = confs.reduce((a,c) => a + c.y, 0) / confs.length;
+    confs.forEach(c => c.y = avg);
+  }
+  render();
+}
+
+function distributeSelected(axis){
+  const ids = _state.selectedFieldIds.filter(id => _state.fieldLayout[id]);
+  if(ids.length < 3) return;
+  pushHistory();
+  const items = ids.map(id => ({ id, conf: _state.fieldLayout[id] }));
+  items.sort((a, b) => axis === 'horizontal' ? a.conf.x - b.conf.x : a.conf.y - b.conf.y);
+
+  const first = items[0].conf;
+  const last  = items[items.length - 1].conf;
+  const range = axis === 'horizontal' ? (last.x - first.x) : (last.y - first.y);
+  const step = range / (items.length - 1);
+
+  items.forEach((it, i) => {
+    if(i === 0 || i === items.length - 1) return; // no tocar extremos
+    if(axis === 'horizontal') it.conf.x = first.x + step * i;
+    else it.conf.y = first.y + step * i;
+  });
+  render();
+}
+
+function setZ(fid, mode){
+  const conf = _state.fieldLayout[fid];
+  if(!conf) return;
+  pushHistory();
+  const all = Object.values(_state.fieldLayout).filter(c => !c.hidden);
+  const zs = all.map(c => c.zIndex != null ? c.zIndex : 10);
+  const maxZ = Math.max(...zs, 10);
+  const minZ = Math.min(...zs, 10);
+
+  const current = conf.zIndex != null ? conf.zIndex : 10;
+  if(mode === 'top')    conf.zIndex = maxZ + 1;
+  else if(mode === 'bottom') conf.zIndex = minZ - 1;
+  else if(mode === 'front')  conf.zIndex = current + 1;
+  else if(mode === 'back')   conf.zIndex = current - 1;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VISTA PREVIA REAL (cómo saldrá impreso)
+// ═══════════════════════════════════════════════════════════════
+function openPrintPreview(){
+  if(Object.keys(_state.fieldLayout).length === 0){
+    toast('Añade campos al pase antes de previsualizar', 'warn');
+    return;
+  }
+  // Renderizar canvas pero SIN guías, sin selección, sin grid, sin bg-image,
+  // sin reglas, exactamente como saldrá impreso
+  const origGuide = _state.showGuide;
+  const origGrid = _state.showGrid;
+  const origRuler = _state.showRuler;
+  const origSel = _state.selectedFieldId;
+  const origSelMulti = _state.selectedFieldIds;
+  const origClient = _state.clientMode;
+  _state.showGuide = false;
+  _state.showGrid = false;
+  _state.showRuler = false;
+  _state.selectedFieldId = null;
+  _state.selectedFieldIds = [];
+  _state.clientMode = true;
+
+  const previewCanvas = renderCanvas();
+  const paper = previewCanvas.querySelector('.canvas-paper');
+  if(paper){
+    paper.style.boxShadow = '0 20px 60px rgba(0,0,0,0.4)';
+  }
+
+  // Restaurar estado
+  _state.showGuide = origGuide;
+  _state.showGrid = origGrid;
+  _state.showRuler = origRuler;
+  _state.selectedFieldId = origSel;
+  _state.selectedFieldIds = origSelMulti;
+  _state.clientMode = origClient;
+
+  const body = el('div', { style:{display:'flex', flexDirection:'column', alignItems:'center', gap:'12px'} },
+    el('p', { class:'cell-mute', style:{fontSize:'13px', margin:0} },
+      `Vista previa exacta del pase como saldrá impreso (${_state.paperSize} · ${_state.paperOrient}).`),
+    previewCanvas
+  );
+  const footer = el('div', { class:'modal-foot' },
+    el('button', { class:'btn btn-secondary', onclick: closeModal }, 'Cerrar'),
+    el('button', { class:'btn btn-primary', onclick: () => { closeModal(); doPrint(); } }, '🖨 Imprimir ahora')
+  );
+  openModal({ title:'Vista previa de impresión', body, size:'lg' });
+  setTimeout(() => body.parentElement.appendChild(footer), 60);
+}
+
 document.addEventListener('keydown', e => {
   if(!_container) return;
   // No interceptar si el foco está en un input
@@ -1461,12 +2042,16 @@ document.addEventListener('keydown', e => {
     const conf = _state.fieldLayout[_state.selectedFieldId];
     if(!conf) return;
     e.preventDefault();
-    const step = _state.gridSize > 0 ? _state.gridSize : 0.5;
-    const delta = e.shiftKey ? step * 5 : step;
-    if(e.key === 'ArrowLeft')  conf.x = Math.max(0,  conf.x - delta);
-    if(e.key === 'ArrowRight') conf.x = Math.min(95, conf.x + delta);
-    if(e.key === 'ArrowUp')    conf.y = Math.max(0,  conf.y - delta);
-    if(e.key === 'ArrowDown')  conf.y = Math.min(95, conf.y + delta);
+    // Por defecto: paso fino 0.1%
+    // Shift: 1% (un paso normal)
+    // Alt: gridSize completo (saltar a la cuadrícula)
+    let delta = 0.1;
+    if(e.shiftKey) delta = 1;
+    else if(e.altKey && _state.gridSize > 0) delta = _state.gridSize;
+    if(e.key === 'ArrowLeft')  conf.x = Math.max(0,  +(conf.x - delta).toFixed(2));
+    if(e.key === 'ArrowRight') conf.x = Math.min(95, +(conf.x + delta).toFixed(2));
+    if(e.key === 'ArrowUp')    conf.y = Math.max(0,  +(conf.y - delta).toFixed(2));
+    if(e.key === 'ArrowDown')  conf.y = Math.min(95, +(conf.y + delta).toFixed(2));
     render();
     return;
   }
