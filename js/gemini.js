@@ -13,7 +13,7 @@
 // ═══════════════════════════════════════════════════════════════
 import { logger } from './logger.js';
 
-const GEMINI_MODEL = 'gemini-1.5-flash-8b'; // 1500 req/día gratis
+const GEMINI_MODEL = 'gemini-2.5-flash-lite'; // 1500 req/día gratis
 
 let _apiKey = '';
 try{
