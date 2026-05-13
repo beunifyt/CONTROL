@@ -118,6 +118,7 @@ let _state = {
   currentTemplateId:null,
   selectedRecordId:null,
   selectedFieldId:null,
+  selectedFieldIds:[],  // selección múltiple (Shift+click)
   zoom:0.55,
   copies:1,
   language:'es',
@@ -127,16 +128,23 @@ let _state = {
   font:'Arial',
   labelMode:'valor',
   troquel:false,
-  fieldLayout:{},  // { fieldId: { x, y, fontSize, bold, highlight, color, rotation, hidden } }
+  fieldLayout:{},  // { fieldId: { x, y, fontSize, bold, highlight, color, rotation, zIndex, hidden } }
+  fieldOrder:[],   // orden Z (último = más arriba)
   // Frases monolito
-  ph1On:false, phrase1:'',           // Frase ámbar
-  ph2On:false, phrase2:'',           // Frase pie borde negro
-  ph3On:false, puerta3:{},           // Puerta Hall
+  ph1On:false, phrase1:'',
+  ph2On:false, phrase2:'',
+  ph3On:false, puerta3:{},
   qrTracking:false, qrBase:'',
-  // Imagen guía
+  // Imagen guía + trapezoide
   bgImage:null, bgOpacity:0.35, showGuide:true,
+  bgTransform:{ tx:0, ty:0, rot:0, scale:1, skewX:0, skewY:0, persp:1000 },
   // Innovaciones
-  snapToGrid:true, gridSize:5,
+  snapToGrid:true,
+  gridSize:1,         // 1 / 2 / 5 / 10 / 0(off)
+  showGrid:false,     // mostrar grid en canvas
+  showRuler:true,     // regla en mm
+  alignGuides:{ x:null, y:null },
+  clipboardStyle:null, // para copiar formato
   watermark:{enabled:false,text:'',opacity:0.1},
   multiPerSheet:1,
   vehiculoAutoSelect:false,
@@ -173,8 +181,8 @@ function saveStateToLocal(){
     const s = {};
     for(const k of ['modulo','eventoId','selectedRecordId','paperSize','paperOrient','font','labelMode',
                     'troquel','fieldLayout','ph1On','phrase1','ph2On','phrase2','ph3On','puerta3',
-                    'qrTracking','qrBase','bgImage','bgOpacity','showGuide','zoom','copies','language',
-                    'snapToGrid','gridSize','watermark','multiPerSheet','vehiculoAutoSelect','caducidadHoras',
+                    'qrTracking','qrBase','bgImage','bgOpacity','showGuide','bgTransform','zoom','copies','language',
+                    'snapToGrid','gridSize','showGrid','showRuler','watermark','multiPerSheet','vehiculoAutoSelect','caducidadHoras',
                     'currentTemplateId']){
       s[k] = _state[k];
     }
@@ -231,6 +239,7 @@ function applyTemplate(t){
     _state.qrBase = t.layout.qrBase || '';
     _state.bgImage = t.layout.bgImage || null;
     _state.bgOpacity = t.layout.bgOpacity || 0.35;
+    _state.bgTransform = t.layout.bgTransform || { tx:0, ty:0, rot:0, scale:1, skewX:0, skewY:0, persp:1000 };
     _state.watermark = t.layout.watermark || {enabled:false, text:'', opacity:0.1};
   }
 }
@@ -440,21 +449,75 @@ function renderCanvas(){
   const pxW = mmW * 3.78 * _state.zoom;
   const pxH = mmH * 3.78 * _state.zoom;
 
+  // ── Regla milimétrica (top + left) ───────────────────────
+  if(_state.showRuler){
+    const rulerH = el('div', { class:'ruler ruler-h', style:{ width: pxW + 'px' } });
+    for(let mm = 0; mm <= mmW; mm += 5){
+      const isLabel = mm % 10 === 0;
+      rulerH.appendChild(el('div', {
+        class: `ruler-tick ${isLabel ? 'major' : ''}`,
+        style:{ left: (mm * 3.78 * _state.zoom) + 'px' }
+      }, isLabel ? String(mm) : ''));
+    }
+    wrap.appendChild(rulerH);
+  }
+
+  const inner = el('div', { class:'canvas-inner' });
+
+  if(_state.showRuler){
+    const rulerV = el('div', { class:'ruler ruler-v', style:{ height: pxH + 'px' } });
+    for(let mm = 0; mm <= mmH; mm += 5){
+      const isLabel = mm % 10 === 0;
+      rulerV.appendChild(el('div', {
+        class: `ruler-tick-v ${isLabel ? 'major' : ''}`,
+        style:{ top: (mm * 3.78 * _state.zoom) + 'px' }
+      }, isLabel ? String(mm) : ''));
+    }
+    inner.appendChild(rulerV);
+  }
+
   const paper = el('div', {
-    class:`canvas-paper ${_state.troquel ? 'troquel' : ''}`,
-    style:{ width: pxW + 'px', height: pxH + 'px', fontFamily: _state.font },
-    ondragover: e => { e.preventDefault(); },
+    class:`canvas-paper ${_state.troquel ? 'troquel' : ''} ${_state.showGrid ? 'has-grid' : ''}`,
+    style:{
+      width: pxW + 'px',
+      height: pxH + 'px',
+      fontFamily: _state.font,
+      '--grid-size': (_state.gridSize > 0 ? (_state.gridSize * 3.78 * _state.zoom) : 0) + 'px'
+    },
+    ondragover: e => {
+      e.preventDefault();
+      handleAlignGuides(e, paper);
+    },
+    ondragleave: () => { _state.alignGuides = {x:null, y:null}; },
     ondrop: e => onCanvasDrop(e, paper),
-    onclick: e => { if(e.target === paper){ _state.selectedFieldId = null; render(); } }
+    onmousedown: e => {
+      if(e.target === paper){
+        _state.selectedFieldId = null;
+        _state.selectedFieldIds = [];
+        render();
+      }
+    }
   });
 
-  // Background image
+  // Background image con TRANSFORMACIÓN TRAPEZOIDAL/PERSPECTIVA
   if(_state.bgImage && _state.showGuide){
-    paper.appendChild(el('img', {
-      class:'canvas-bg-img',
-      src: _state.bgImage,
-      style:{ opacity: String(_state.bgOpacity) }
-    }));
+    const tr = _state.bgTransform;
+    paper.appendChild(el('div', {
+      style:{
+        position:'absolute', inset:0, zIndex:'1', pointerEvents:'none',
+        perspective: tr.persp + 'px'
+      }
+    },
+      el('img', {
+        class:'canvas-bg-img',
+        src: _state.bgImage,
+        style:{
+          opacity: String(_state.bgOpacity),
+          transform: `translate(${tr.tx}%, ${tr.ty}%) rotate(${tr.rot}deg) scale(${tr.scale}) skew(${tr.skewX}deg, ${tr.skewY}deg)`,
+          transformOrigin:'center'
+        }
+      })
+    ));
   }
 
   // Watermark
@@ -495,6 +558,14 @@ function renderCanvas(){
     }, _state.phrase2));
   }
 
+  // Guías de alineación al arrastrar
+  if(_state.alignGuides.x !== null){
+    paper.appendChild(el('div', { class:'align-guide guide-v', style:{ left: _state.alignGuides.x + '%' } }));
+  }
+  if(_state.alignGuides.y !== null){
+    paper.appendChild(el('div', { class:'align-guide guide-h', style:{ top: _state.alignGuides.y + '%' } }));
+  }
+
   // Campos
   const data = getRecordData();
   for(const [fid, conf] of Object.entries(_state.fieldLayout)){
@@ -502,8 +573,49 @@ function renderCanvas(){
     paper.appendChild(renderField(fid, conf, data));
   }
 
-  wrap.appendChild(paper);
+  inner.appendChild(paper);
+  wrap.appendChild(inner);
   return wrap;
+}
+
+// Calcula guías de alineación: cuando arrastras, si te acercas
+// a la misma X o Y de otro campo, aparece una línea roja.
+function handleAlignGuides(e, paper){
+  if(!_state.snapToGrid) return; // Solo si snap activo
+  const rect = paper.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * 100;
+  const y = ((e.clientY - rect.top) / rect.height) * 100;
+  const TOL = 1.5; // % tolerancia
+  let snapX = null, snapY = null;
+  const draggingId = _state.selectedFieldId;
+  for(const [fid, conf] of Object.entries(_state.fieldLayout)){
+    if(fid === draggingId || conf.hidden) continue;
+    if(Math.abs(conf.x - x) < TOL) snapX = conf.x;
+    if(Math.abs(conf.y - y) < TOL) snapY = conf.y;
+  }
+  // Bordes y centro del papel
+  for(const ref of [0, 50, 95]){
+    if(Math.abs(ref - x) < TOL) snapX = ref;
+    if(Math.abs(ref - y) < TOL) snapY = ref;
+  }
+  if(snapX !== _state.alignGuides.x || snapY !== _state.alignGuides.y){
+    _state.alignGuides = { x: snapX, y: snapY };
+    // Re-render solo si hay cambio (evita parpadeo)
+    const existing = paper.querySelectorAll('.align-guide');
+    existing.forEach(n => n.remove());
+    if(snapX !== null){
+      const g = document.createElement('div');
+      g.className = 'align-guide guide-v';
+      g.style.left = snapX + '%';
+      paper.appendChild(g);
+    }
+    if(snapY !== null){
+      const g = document.createElement('div');
+      g.className = 'align-guide guide-h';
+      g.style.top = snapY + '%';
+      paper.appendChild(g);
+    }
+  }
 }
 
 function renderField(fid, conf, data){
@@ -519,6 +631,7 @@ function renderField(fid, conf, data){
   const isSelected = _state.selectedFieldId === fid;
   const node = el('div', {
     class: `canvas-field ${isSelected ? 'selected' : ''} ${conf.highlight ? 'highlight' : ''}`,
+    'data-pos': `${conf.x.toFixed(1)}, ${conf.y.toFixed(1)}`,
     style: {
       left: conf.x + '%',
       top: conf.y + '%',
@@ -527,11 +640,30 @@ function renderField(fid, conf, data){
       color: conf.color || '#000',
       transform: conf.rotation ? `rotate(${conf.rotation}deg)` : ''
     },
-    onclick: e => { e.stopPropagation(); _state.selectedFieldId = fid; _state.activeTab = 'editar'; render(); },
+    onmousedown: e => {
+      e.stopPropagation();
+      _state.selectedFieldId = fid;
+      _state.activeTab = 'editar';
+      render();
+    },
     draggable:'true',
     ondragstart: e => {
       e.dataTransfer.setData('move-field', fid);
       e.dataTransfer.effectAllowed = 'move';
+      // Imagen-fantasma transparente: arrastre fluido
+      const ghost = document.createElement('div');
+      ghost.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
+      document.body.appendChild(ghost);
+      e.dataTransfer.setDragImage(ghost, 0, 0);
+      setTimeout(() => ghost.remove(), 0);
+      // Activar crosshair en paper
+      const paper = e.target.closest('.canvas-paper');
+      if(paper) paper.classList.add('dragging');
+    },
+    ondragend: e => {
+      const paper = e.target.closest('.canvas-paper');
+      if(paper) paper.classList.remove('dragging');
+      _state.alignGuides = { x:null, y:null };
     }
   });
 
@@ -628,6 +760,7 @@ function evalCondition(cond, data){
 
 function onCanvasDrop(e, paper){
   e.preventDefault();
+  _state.alignGuides = { x:null, y:null };
   const moveId = e.dataTransfer.getData('move-field');
   const newId = e.dataTransfer.getData('new-field');
   const rect = paper.getBoundingClientRect();
@@ -636,9 +769,24 @@ function onCanvasDrop(e, paper){
   x = Math.max(0, Math.min(95, x));
   y = Math.max(0, Math.min(95, y));
 
-  if(_state.snapToGrid){
+  // Snap configurable: 1/2/5/10/0(off)
+  if(_state.snapToGrid && _state.gridSize > 0){
     x = Math.round(x / _state.gridSize) * _state.gridSize;
     y = Math.round(y / _state.gridSize) * _state.gridSize;
+  }
+
+  // Snap a guías (campos cercanos en mismo eje)
+  if(_state.snapToGrid){
+    const TOL = 1.5;
+    for(const [fid, conf] of Object.entries(_state.fieldLayout)){
+      if(fid === moveId || conf.hidden) continue;
+      if(Math.abs(conf.x - x) < TOL) x = conf.x;
+      if(Math.abs(conf.y - y) < TOL) y = conf.y;
+    }
+    for(const ref of [0, 50, 95]){
+      if(Math.abs(ref - x) < TOL) x = ref;
+      if(Math.abs(ref - y) < TOL) y = ref;
+    }
   }
 
   pushHistory();
@@ -954,9 +1102,47 @@ function renderConfigTab(){
       onclick: () => document.getElementById('__bg_file').click()
     }, '🖼 Cargar imagen guía'),
     _state.bgImage ? el('button', { class:'btn btn-ghost btn-sm', style:{marginTop:'6px'},
-      onclick: () => { _state.bgImage = null; render(); }
+      onclick: () => { _state.bgImage = null; _state.bgTransform = { tx:0,ty:0,rot:0,scale:1,skewX:0,skewY:0,persp:1000 }; render(); }
     }, '✕ Quitar imagen') : null
   ));
+
+  // ── Corrector trapezoidal / perspectiva de la imagen guía ──
+  if(_state.bgImage){
+    wrap.appendChild(el('div', { class:'config-section-head', style:{marginTop:'14px'} }, 'CORREGIR IMAGEN GUÍA'));
+    wrap.appendChild(el('p', { class:'cell-mute', style:{fontSize:'11px', marginTop:'-4px', marginBottom:'8px'} },
+      'Endereza fotos torcidas y corrige perspectiva.'));
+
+    const tr = _state.bgTransform;
+
+    const slider = (label, key, min, max, step=1, unit='') => {
+      const lbl = el('label', { class:'edit-label', style:{marginTop:'8px', display:'flex', justifyContent:'space-between'} },
+        el('span', {}, label),
+        el('span', { style:{fontFamily:'monospace', fontSize:'11px', color:'var(--text-3)'} }, tr[key] + unit)
+      );
+      const input = el('input', {
+        type:'range', min:String(min), max:String(max), step:String(step),
+        value: String(tr[key]),
+        style:{ width:'100%' },
+        oninput: e => { tr[key] = Number(e.target.value); render(); }
+      });
+      wrap.appendChild(lbl);
+      wrap.appendChild(input);
+    };
+
+    slider('Rotación', 'rot', -180, 180, 0.5, '°');
+    slider('Escala', 'scale', 0.3, 3, 0.05, 'x');
+    slider('Mover X', 'tx', -50, 50, 0.5, '%');
+    slider('Mover Y', 'ty', -50, 50, 0.5, '%');
+    slider('Inclinar X (trapezoide)', 'skewX', -45, 45, 0.5, '°');
+    slider('Inclinar Y (trapezoide)', 'skewY', -45, 45, 0.5, '°');
+
+    wrap.appendChild(el('button', { class:'btn btn-ghost btn-sm w-full', style:{marginTop:'8px'},
+      onclick: () => {
+        _state.bgTransform = { tx:0, ty:0, rot:0, scale:1, skewX:0, skewY:0, persp:1000 };
+        render();
+      }
+    }, '↻ Restablecer corrección'));
+  }
 
   // Marca de agua
   wrap.appendChild(renderToggle('Marca de agua', _state.watermark.enabled, v => { _state.watermark.enabled = v; render(); }));
@@ -967,8 +1153,26 @@ function renderConfigTab(){
     }));
   }
 
-  // Snap to grid
-  wrap.appendChild(renderToggle('Snap to grid', _state.snapToGrid, v => { _state.snapToGrid = v; }));
+  // ── Editor: regla, grid, snap granular ──
+  wrap.appendChild(el('div', { class:'config-section-head', style:{marginTop:'14px'} }, 'EDITOR'));
+  wrap.appendChild(renderToggle('Regla milimétrica', _state.showRuler, v => { _state.showRuler = v; render(); }));
+  wrap.appendChild(renderToggle('Cuadrícula visible', _state.showGrid, v => { _state.showGrid = v; render(); }));
+  wrap.appendChild(renderToggle('Ajustar a guías', _state.snapToGrid, v => { _state.snapToGrid = v; }));
+
+  // Granularidad del snap (1/2/5/10/off)
+  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} }, 'Precisión movimiento'));
+  const snapRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:'4px' } });
+  for(const sz of [0, 1, 2, 5, 10]){
+    snapRow.appendChild(el('button', {
+      class:`btn btn-sm ${_state.gridSize === sz ? 'btn-primary' : 'btn-secondary'}`,
+      style:{ padding:'6px 4px', fontSize:'11px' },
+      onclick: () => { _state.gridSize = sz; render(); }
+    }, sz === 0 ? 'Libre' : `${sz}%`));
+  }
+  wrap.appendChild(snapRow);
+  wrap.appendChild(el('p', { class:'cell-mute', style:{fontSize:'11px', marginTop:'4px'} },
+    _state.gridSize === 0 ? 'Movimiento totalmente libre · Píxel a píxel'
+    : `Pasos de ${_state.gridSize}% · Flechas: ${_state.gridSize}% · Shift+flecha: ${_state.gridSize*5}%`));
 
   // Auto-selección por vehículo
   wrap.appendChild(renderToggle('Plantilla por tipo vehículo', _state.vehiculoAutoSelect, v => { _state.vehiculoAutoSelect = v; }));
@@ -1064,6 +1268,7 @@ function buildLayoutPayload(){
     ph3On: _state.ph3On, puerta3: _state.puerta3,
     qrTracking: _state.qrTracking, qrBase: _state.qrBase,
     bgImage: _state.bgImage, bgOpacity: _state.bgOpacity,
+    bgTransform: _state.bgTransform,
     watermark: _state.watermark
   };
 }
@@ -1144,6 +1349,7 @@ function importJson(){
         ph3On: !!data.ph3On, puerta3: data.puerta3 || {},
         qrTracking: !!data.qrTracking, qrBase: data.qrBase || '',
         bgImage: data.bgImage || null, bgOpacity: data.bgOpacity || 0.35,
+        bgTransform: data.bgTransform || { tx:0,ty:0,rot:0,scale:1,skewX:0,skewY:0,persp:1000 },
         watermark: data.watermark || {enabled:false,text:'',opacity:0.1}
       });
       render();
@@ -1243,5 +1449,35 @@ function recordPrintStat(templateId){
 }
 
 document.addEventListener('keydown', e => {
-  if(_container && (e.ctrlKey || e.metaKey) && e.key === 'z'){ e.preventDefault(); undo(); }
+  if(!_container) return;
+  // No interceptar si el foco está en un input
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+
+  // Undo
+  if((e.ctrlKey || e.metaKey) && e.key === 'z'){ e.preventDefault(); undo(); return; }
+
+  // Arrow keys: mueven el campo seleccionado
+  if(_state.selectedFieldId && /^Arrow/.test(e.key)){
+    const conf = _state.fieldLayout[_state.selectedFieldId];
+    if(!conf) return;
+    e.preventDefault();
+    const step = _state.gridSize > 0 ? _state.gridSize : 0.5;
+    const delta = e.shiftKey ? step * 5 : step;
+    if(e.key === 'ArrowLeft')  conf.x = Math.max(0,  conf.x - delta);
+    if(e.key === 'ArrowRight') conf.x = Math.min(95, conf.x + delta);
+    if(e.key === 'ArrowUp')    conf.y = Math.max(0,  conf.y - delta);
+    if(e.key === 'ArrowDown')  conf.y = Math.min(95, conf.y + delta);
+    render();
+    return;
+  }
+
+  // Delete: eliminar campo seleccionado
+  if(_state.selectedFieldId && (e.key === 'Delete' || e.key === 'Backspace')){
+    e.preventDefault();
+    pushHistory();
+    delete _state.fieldLayout[_state.selectedFieldId];
+    _state.selectedFieldId = null;
+    render();
+    return;
+  }
 });
