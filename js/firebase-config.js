@@ -75,3 +75,5 @@ export const storage = getStorage(app);
 
 // Bandera global accesible desde DevTools para depurar
 window.__beunifyt_app = { app, auth, db, storage, version: appVersion };
+
+export const geminiApiKey = 'AIzaSyAXYLYhxfA4MrB7MzmA7JrxH3KNLmdsQdE';
