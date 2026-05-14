@@ -482,7 +482,12 @@ async function loadExistingForDedup(modulo, opts){
     ? query(collection(db, modulo), ...constraints, limit(2000))
     : query(collection(db, modulo), limit(2000));
   const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  // Ignorar registros borrados (los que están en la papelera con
+  // _deleted:true). Si el operario borró un lote, debe poder
+  // reimportarlo sin tener que vaciar la papelera antes.
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(r => r._deleted !== true);
 }
 
 function isDuplicate(modulo, payload, existing){
