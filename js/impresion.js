@@ -747,7 +747,13 @@ function buildFieldStyle(conf, def, extra = {}){
 function renderField(fid, conf, data){
   const def = FIELDS[fid];
   if(!def) return el('span', {});
-  const value = data[def.source] != null ? data[def.source] : '—';
+  const rawValue = data[def.source];
+  // Un campo sin dato en el registro llega como '' (cadena vacía).
+  // Antes eso producía un nodo de texto vacío => invisible en el canvas
+  // aunque el campo estuviera colocado. Ahora detectamos el vacío y
+  // mostramos un placeholder con el nombre del campo en modo edición.
+  const isEmpty = rawValue == null || String(rawValue).trim() === '';
+  const value = isEmpty ? (def.label || def.source) : rawValue;
 
   // Plantilla condicional
   if(conf.condition && !evalCondition(conf.condition, data)){
@@ -767,7 +773,9 @@ function renderField(fid, conf, data){
     if(fid === 'qr' || fid === 'barcode' || fid === 'logo' || fid === 'recintoLogo'){
       // mismo render que el bloque normal abajo (lo reutilizamos via continuación)
     } else {
-      view.appendChild(document.createTextNode(value));
+      // En vista cliente / impresión un campo sin dato queda vacío,
+      // nunca muestra el nombre del campo como placeholder.
+      view.appendChild(document.createTextNode(isEmpty ? '' : value));
     }
     return view;
   }
@@ -944,7 +952,17 @@ function renderField(fid, conf, data){
       node.appendChild(el('span', { style:{ borderBottom:'1px solid #000', minWidth:'80px', display:'inline-block' } }));
       return node;
     }
-    node.appendChild(document.createTextNode(value));
+    if(isEmpty){
+      // Campo colocado pero sin dato en este registro: mostramos el
+      // nombre como placeholder atenuado para que sea visible y
+      // arrastrable. NO se imprime (ver rama clientMode arriba).
+      node.appendChild(el('span', {
+        class:'field-placeholder',
+        style:{ opacity:'0.4', fontStyle:'italic' }
+      }, value));
+    } else {
+      node.appendChild(document.createTextNode(value));
+    }
   }
 
   return node;
