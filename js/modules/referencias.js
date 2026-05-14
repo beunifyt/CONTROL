@@ -69,6 +69,8 @@ const ALL_FORM_FIELDS = [
 
 export async function init(container){
   _container = container;
+  // Esta vista tiene tablas anchas → usar todo el ancho disponible
+  container.classList.add('page-wide');
   _eventos = await list('eventos', { orderBy:'createdAt', order:'desc' });
   _conductores = await list('conductores', { orderBy:'nombre' });
   _empresas = await list('empresas', { orderBy:'nombre' });
@@ -85,6 +87,7 @@ export async function init(container){
 
 export function destroy(){
   unregisterListenersByPrefix(KEY_PREFIX);
+  _container?.classList.remove('page-wide');
   _container = null;
 }
 
