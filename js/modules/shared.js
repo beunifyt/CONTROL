@@ -207,28 +207,18 @@ function openImportDialog(modulo, opts){
 }
 
 /**
- * Lanza la impresión de un registro abriendo el módulo de impresión
- * con el registro pre-seleccionado y disparando print automáticamente.
+ * Abre el modal de previsualización + impresión del pase de un registro.
+ * NO navega a ningún sitio — el usuario imprime y se queda donde estaba.
+ * No requiere permiso del módulo Impresión.
  *
  * @param {string} modulo - 'referencias' | 'ingresos' | 'agenda'
- * @param {object} record - registro con id (al menos) y opcionalmente eventoId
+ * @param {object} record - registro con id (al menos) y eventoId
  */
 export function printRecord(modulo, record){
-  if(!record || !record.id){
-    import('../utils.js').then(({ toast }) => toast('Sin registro para imprimir', 'err'));
-    return;
-  }
-  try{
-    sessionStorage.setItem('beunifyt_print_target', JSON.stringify({
-      modulo,
-      eventoId: record.eventoId || record.evento_id || '',
-      recordId: record.id
-    }));
-  } catch(_){}
-  // Navegar al módulo de impresión usando el router (#/impresion)
-  if(window.beunifyt && typeof window.beunifyt.navigate === 'function'){
-    window.beunifyt.navigate('impresion');
-  } else {
-    location.hash = '#/impresion';
-  }
+  import('../print-pass.js')
+    .then(({ openPrintPassModal }) => openPrintPassModal(modulo, record))
+    .catch(err => {
+      import('../utils.js').then(({ toast }) =>
+        toast('No se pudo abrir la impresión: ' + (err.message || ''), 'err'));
+    });
 }

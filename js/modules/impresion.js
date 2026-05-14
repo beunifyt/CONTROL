@@ -19,7 +19,7 @@ const STATE_KEY = 'beunifyt_print_state_v2';
 // ═══════════════════════════════════════════════════════════════
 // CAMPOS DEL MONOLITO (23 campos completos)
 // ═══════════════════════════════════════════════════════════════
-const FIELDS = {
+export const FIELDS = {
   // Vehículo
   matricula:      { cat:'Vehículo',  ico:'🚛', label:'Matrícula',      source:'matricula',      defSize:32, defBold:true, defHighlight:true },
   matricula2:     { cat:'Vehículo',  ico:'🚚', label:'Matrícula 2',    source:'matricula2',     defSize:18 },
@@ -166,33 +166,12 @@ export async function init(container){
   _state.eventos = await list('eventos', {orderBy:'createdAt', order:'desc'});
   _state.recintos = await list('recintos', {orderBy:'nombre'});
 
-  // Si llegamos desde otro módulo con un registro a imprimir
-  try{
-    const target = sessionStorage.getItem('beunifyt_print_target');
-    if(target){
-      const t = JSON.parse(target);
-      sessionStorage.removeItem('beunifyt_print_target');
-      if(t.modulo) _state.modulo = t.modulo;
-      if(t.eventoId) _state.eventoId = t.eventoId;
-      if(t.recordId) _state.selectedRecordId = t.recordId;
-      _state._autoOpenPrintOnLoad = true;
-    }
-  } catch(_){}
-
   if(!_state.eventoId && _state.eventos.length){
     _state.eventoId = _state.eventos[0].id;
   }
   await loadTemplate();
   await loadRecords();
   render();
-
-  // Si llegamos para imprimir, abrir preview/imprimir automáticamente tras render
-  if(_state._autoOpenPrintOnLoad){
-    delete _state._autoOpenPrintOnLoad;
-    setTimeout(() => {
-      try{ doPrint(); }catch(e){ console.warn('autoPrint fail', e); }
-    }, 400);
-  }
 }
 
 export function destroy(){
