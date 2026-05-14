@@ -1802,8 +1802,20 @@ body[data-theme="contrast"] .table td{ border-width:1.5px !important; }
 .page.page-wide .table-wrap{
   width:100%;
 }
-/* La tabla se estira a todo el ancho del contenedor.
-   min-width solo entra en juego si las columnas activas no caben. */
 .page.page-wide .table{
   width:100%;
+  table-layout:auto;
 }
+.page.page-wide .table th{
+  white-space:nowrap;
+}
+
+/* Columna espaciadora: ocupa todo el ancho sobrante con width:100%,
+   así las columnas reales se quedan en su tamaño natural y la tabla
+   se estira hasta el borde del contenedor sin huecos. */
+.col-spacer{
+  width:100%;
+  padding:0 !important;
+  border-bottom:1px solid var(--border);
+}
+.table tbody tr:last-child .col-spacer{ border-bottom:0; }

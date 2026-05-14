@@ -86,6 +86,9 @@ export function smartTable(opts){
     }, col.label));
   }
   if(rowActions) trHead.appendChild(el('th', {}, 'Acciones'));
+  // Columna espaciadora: absorbe el ancho sobrante para que la tabla
+  // ocupe todo el contenedor en lugar de quedarse estrecha
+  trHead.appendChild(el('th', { class:'col-spacer' }));
   thead.appendChild(trHead);
   tbl.appendChild(thead);
 
@@ -97,7 +100,7 @@ export function smartTable(opts){
       onclick: detailRenderer ? (e) => {
         if(e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.tagName === 'A') return;
         if(e.target.closest('.inline-edit-cell')) return; // no abrir detalle si edito inline
-        toggleDetail(tr, row, detailRenderer, activeColumns.length + (rowActions ? 1 : 0));
+        toggleDetail(tr, row, detailRenderer, activeColumns.length + (rowActions ? 1 : 0) + 1);
       } : null
     });
     for(const colId of activeColumns){
@@ -128,6 +131,8 @@ export function smartTable(opts){
       if(actions instanceof Node) td.appendChild(actions);
       tr.appendChild(td);
     }
+    // Celda espaciadora (par del th.col-spacer)
+    tr.appendChild(el('td', { class:'col-spacer' }));
     tbody.appendChild(tr);
   }
   tbl.appendChild(tbody);
