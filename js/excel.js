@@ -239,7 +239,7 @@ export async function downloadTemplate(modulo, opts = {}){
 // ═══════════════════════════════════════════════════════════════
 // IMPORTAR — lee Excel y crea registros
 // Detección de duplicados:
-//  - referencias: por (matricula, referencia, eventoId)
+//  - referencias: por (referencia, eventoId) — y matrícula si está presente
 //  - ingresos:    por (matricula, fechaKey)
 //  - flota:       por matricula
 //  - conductores: por dni
@@ -319,7 +319,7 @@ export async function importFromExcel(modulo, file, opts = {}){
     // Cargar existentes para detectar duplicados
     const existing = await loadExistingForDedup(modulo, opts);
 
-    let created = 0, duplicates = 0, errors = 0;
+    let created = 0, duplicates = 0, errors = 0, skipped = 0;
     const errorRows = [];
 
     for(let i = 0; i < realRows.length; i++){
@@ -347,9 +347,15 @@ export async function importFromExcel(modulo, file, opts = {}){
           payload[c.field] = v;
         }
 
-        // Saltar fila si no tiene campo clave
+        // Saltar fila si no tiene campo clave.
+        // Antes esto era silencioso (0/0/0). Ahora lo contamos y lo
+        // reportamos como error para que el usuario sepa qué pasó.
         const keyField = keyFieldFor(modulo);
-        if(!payload[keyField]){ continue; }
+        if(!payload[keyField]){
+          skipped++;
+          errorRows.push({ row: i + 2, msg: `Falta campo obligatorio "${keyField}"` });
+          continue;
+        }
 
         // Asignar eventoId si aplica
         if(opts.eventoId && ['referencias','ingresos','agenda'].includes(modulo)){
@@ -363,16 +369,21 @@ export async function importFromExcel(modulo, file, opts = {}){
         }
 
         // Crear según módulo
+        let createdDoc = null;
         if(modulo === 'referencias'){
           if(!payload.eventoId) throw new Error('Falta eventoId (selecciónalo antes de importar)');
-          await createReferencia(payload);
+          createdDoc = await createReferencia(payload);
         } else if(modulo === 'ingresos'){
           if(!payload.eventoId) throw new Error('Falta eventoId');
-          await createIngreso(payload);
+          createdDoc = await createIngreso(payload);
         } else {
-          await create(modulo, payload);
+          createdDoc = await create(modulo, payload);
         }
         created++;
+
+        // Añadir a "existing" en memoria para que duplicados DENTRO
+        // del mismo archivo también se detecten.
+        existing.push({ ...payload, id: createdDoc?.id || `_new_${i}` });
       } catch(e){
         errors++;
         errorRows.push({ row: i + 2, msg: e.message }); // +2 por header
@@ -380,11 +391,12 @@ export async function importFromExcel(modulo, file, opts = {}){
       }
     }
 
-    const summary = `✅ ${created} creados · ${duplicates} duplicados · ${errors} errores`;
+    const totalErrors = errors + skipped;
+    const summary = `✅ ${created} creados · ${duplicates} duplicados · ${totalErrors} errores`;
     logger.ok(`Importar ${modulo} completado: ${summary}`);
-    toast(summary, errors > 0 ? 'warn' : 'ok', 4000);
+    toast(summary, totalErrors > 0 ? 'warn' : 'ok', 4000);
 
-    return { created, duplicates, errors, errorRows };
+    return { created, duplicates, errors: totalErrors, skipped, errorRows };
   } catch(e){
     logger.error(`Importar ${modulo} falló`, { error: e.message, stack: e.stack });
     toast(`Error: ${e.message}`, 'err');
@@ -394,7 +406,11 @@ export async function importFromExcel(modulo, file, opts = {}){
 
 function keyFieldFor(modulo){
   return {
-    referencias:'matricula', ingresos:'matricula', agenda:'matricula',
+    // referencias: la clave es la referencia/booking, NO la matrícula.
+    // La plantilla de referencias se carga antes de conocer las matrículas
+    // (asignación de stands/expositores). Una matrícula puede tener varias
+    // referencias el mismo día, y la matrícula puede venir vacía.
+    referencias:'referencia', ingresos:'matricula', agenda:'referencia',
     flota:'matricula', conductores:'nombre', empresas:'nombre'
   }[modulo] || 'nombre';
 }
@@ -413,17 +429,30 @@ async function loadExistingForDedup(modulo, opts){
 
 function isDuplicate(modulo, payload, existing){
   if(modulo === 'referencias'){
-    return existing.some(e =>
-      e.matricula === payload.matricula &&
-      e.referencia === payload.referencia &&
-      e.eventoId === payload.eventoId
-    );
+    // Clave principal: referencia + evento.
+    // Si AMBOS registros tienen matrícula, la matrícula también debe
+    // coincidir para considerarlo duplicado (misma referencia + distinta
+    // matrícula = registro legítimamente distinto). Si la matrícula falta
+    // en cualquiera de los dos, basta con referencia + evento.
+    return existing.some(e => {
+      if(e.referencia !== payload.referencia) return false;
+      if(e.eventoId !== payload.eventoId) return false;
+      const bothHaveMat = e.matricula && payload.matricula;
+      if(bothHaveMat) return e.matricula === payload.matricula;
+      return true;
+    });
   }
   if(modulo === 'ingresos'){
     const today = new Date().toISOString().slice(0,10);
     return existing.some(e =>
       e.matricula === payload.matricula &&
       e.fechaKey === today
+    );
+  }
+  if(modulo === 'agenda'){
+    return existing.some(e =>
+      e.referencia === payload.referencia &&
+      e.eventoId === payload.eventoId
     );
   }
   if(modulo === 'flota'){
