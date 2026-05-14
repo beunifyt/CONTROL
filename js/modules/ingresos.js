@@ -51,6 +51,7 @@ function render(){
   }
   actions.push(...excelButtons('ingresos', {
     eventoId: _filterEvento || null,
+    eventoNombre: (_eventos.find(e => e.id === _filterEvento) || {}).nombre || '',
     canImport: canCreate(p),
     canExport: true
   }));

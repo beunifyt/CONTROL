@@ -70,7 +70,8 @@ const SCHEMAS = {
     { col:'Estado',       field:'estado',        desc:'prerregistrado|en_camino|rampa_parking|dentro_fira|salida', example:'prerregistrado' },
     { col:'Hora',         field:'hora',          desc:'Hora HH:MM',                  example:'09:30' },
     { col:'Comentario',   field:'comentario',    desc:'Comentario',                  example:'' },
-    { col:'Notas',        field:'notas',         desc:'Notas adicionales',           example:'' }
+    { col:'Notas',        field:'notas',         desc:'Notas adicionales',           example:'' },
+    { col:'Evento',       field:'eventoNombre',  desc:'Nombre del evento (autocompletado en la plantilla)', example:'' }
   ],
   ingresos: [
     { col:'Matricula',    field:'matricula',     desc:'Matrícula vehículo',         example:'1234ABC' },
@@ -84,7 +85,8 @@ const SCHEMAS = {
     { col:'HoraEntrada',  field:'horaEntrada',   desc:'HH:MM',                       example:'09:30' },
     { col:'Posicion',     field:'posicion',      desc:'Pos. (vacío = automática)',   example:'' },
     { col:'Estado',       field:'estado',        desc:'dentro|salida',               example:'dentro' },
-    { col:'Notas',        field:'notas',         desc:'',                            example:'' }
+    { col:'Notas',        field:'notas',         desc:'',                            example:'' },
+    { col:'Evento',       field:'eventoNombre',  desc:'Nombre del evento (autocompletado en la plantilla)', example:'' }
   ],
   agenda: [
     { col:'Referencia',      field:'referencia',      desc:'Nº booking',          example:'MWC-2026-001' },
@@ -96,7 +98,8 @@ const SCHEMAS = {
     { col:'FechaPlanificada',field:'fechaPlanificada',desc:'YYYY-MM-DD',          example:'2026-05-15' },
     { col:'HoraPlanificada', field:'horaPlanificada', desc:'HH:MM',               example:'09:30' },
     { col:'Estado',          field:'estado',          desc:'planificado|llegado|finalizado|cancelado', example:'planificado' },
-    { col:'Notas',           field:'notas',           desc:'',                    example:'' }
+    { col:'Notas',           field:'notas',           desc:'',                    example:'' },
+    { col:'Evento',          field:'eventoNombre',    desc:'Nombre del evento (autocompletado en la plantilla)', example:'' }
   ],
   flota: [
     { col:'Matricula', field:'matricula', desc:'Matrícula', example:'1234ABC' },
@@ -132,6 +135,27 @@ const SCHEMAS = {
 
 export function getSchema(modulo){ return SCHEMAS[modulo] || null; }
 export function listModulos(){ return Object.keys(SCHEMAS); }
+
+// ── Resolución de eventos por nombre ──────────────────────────
+// La plantilla descargada lleva el NOMBRE del evento activo escrito
+// en la columna "Evento". Al importar resolvemos ese nombre al
+// eventoId real. Cacheamos la lista de eventos para no consultar
+// Firestore en cada fila.
+let _eventosCache = null;
+async function loadEventos(){
+  if(_eventosCache) return _eventosCache;
+  const snap = await getDocs(collection(db, 'eventos'));
+  _eventosCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return _eventosCache;
+}
+function _normEv(s){ return String(s || '').trim().toLowerCase(); }
+// Devuelve el eventoId a partir de un nombre de evento (o '' si no se halla).
+function resolveEventoId(nombre, eventos){
+  const n = _normEv(nombre);
+  if(!n) return '';
+  const hit = eventos.find(e => _normEv(e.nombre) === n);
+  return hit ? hit.id : '';
+}
 
 // ═══════════════════════════════════════════════════════════════
 // EXPORTAR
@@ -216,6 +240,19 @@ export async function downloadTemplate(modulo, opts = {}){
     const header = schema.map(c => c.col);
     const desc   = schema.map(c => c.desc || '');
     const ex     = schema.map(c => c.example || '');
+
+    // Si la pantalla pasó el nombre del evento activo, lo escribimos
+    // en la columna "Evento" de la fila de ejemplo, así el operario
+    // descarga la plantilla ya lista para rellenar y subir.
+    const evNombre = opts.eventoNombre || '';
+    if(evNombre){
+      const evColIdx = schema.findIndex(c => c.field === 'eventoNombre');
+      if(evColIdx >= 0){
+        ex[evColIdx] = evNombre;
+        desc[evColIdx] = `Evento activo: ${evNombre} — no modificar`;
+      }
+    }
+
     const aoa = [header, desc, ex];
 
     const wb = XLSX.utils.book_new();
@@ -225,10 +262,11 @@ export async function downloadTemplate(modulo, opts = {}){
     ws['!cols'] = schema.map(c => ({ wch: Math.max(c.col.length + 4, c.desc.length + 2, 14) }));
 
     XLSX.utils.book_append_sheet(wb, ws, modulo);
-    const filename = `plantilla_${modulo}.xlsx`;
+    const evSuffix = evNombre ? '_' + evNombre.replace(/[^\w\-]+/g, '_').slice(0, 24) : '';
+    const filename = `plantilla_${modulo}${evSuffix}.xlsx`;
     XLSX.writeFile(wb, filename);
 
-    logger.ok(`Plantilla descargada: ${modulo}`);
+    logger.ok(`Plantilla descargada: ${modulo}${evNombre ? ' · ' + evNombre : ''}`);
     toast(`✅ Plantilla ${modulo}.xlsx descargada`, 'ok');
   } catch(e){
     logger.error(`Plantilla ${modulo} falló`, { error: e.message });
@@ -319,6 +357,10 @@ export async function importFromExcel(modulo, file, opts = {}){
     // Cargar existentes para detectar duplicados
     const existing = await loadExistingForDedup(modulo, opts);
 
+    // Cargar eventos para resolver la columna "Evento" (nombre → id)
+    const moduloUsaEvento = ['referencias','ingresos','agenda'].includes(modulo);
+    const eventos = moduloUsaEvento ? await loadEventos() : [];
+
     let created = 0, duplicates = 0, errors = 0, skipped = 0;
     const errorRows = [];
 
@@ -357,9 +399,22 @@ export async function importFromExcel(modulo, file, opts = {}){
           continue;
         }
 
-        // Asignar eventoId si aplica
-        if(opts.eventoId && ['referencias','ingresos','agenda'].includes(modulo)){
-          payload.eventoId = opts.eventoId;
+        // Asignar eventoId si aplica.
+        // Prioridad: 1) columna "Evento" del Excel (nombre → id)
+        //            2) evento activo de la pantalla (opts.eventoId)
+        if(moduloUsaEvento){
+          const nombreEnFila = payload.eventoNombre || '';
+          if(nombreEnFila){
+            const resolvedId = resolveEventoId(nombreEnFila, eventos);
+            if(!resolvedId){
+              throw new Error(`Evento "${nombreEnFila}" no existe en el sistema`);
+            }
+            payload.eventoId = resolvedId;
+          } else if(opts.eventoId){
+            payload.eventoId = opts.eventoId;
+          }
+          // eventoNombre era solo para resolver; no se guarda en el registro.
+          delete payload.eventoNombre;
         }
 
         // Detectar duplicado
@@ -371,10 +426,10 @@ export async function importFromExcel(modulo, file, opts = {}){
         // Crear según módulo
         let createdDoc = null;
         if(modulo === 'referencias'){
-          if(!payload.eventoId) throw new Error('Falta eventoId (selecciónalo antes de importar)');
+          if(!payload.eventoId) throw new Error('Sin evento: rellena la columna "Evento" o selecciona un evento antes de importar');
           createdDoc = await createReferencia(payload);
         } else if(modulo === 'ingresos'){
-          if(!payload.eventoId) throw new Error('Falta eventoId');
+          if(!payload.eventoId) throw new Error('Sin evento: rellena la columna "Evento" o selecciona un evento antes de importar');
           createdDoc = await createIngreso(payload);
         } else {
           createdDoc = await create(modulo, payload);
