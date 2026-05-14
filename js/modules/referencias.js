@@ -1,7 +1,7 @@
 // referencias.js — Referencias (Ingresos tipo 1) con campo Posición
-import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, chipTel } from '../utils.js';
+import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, chipTel, chipEmail } from '../utils.js';
 import { getDefaultEventoId } from '../utils.js';
-import { listLive, list, update, remove, createReferencia, isPosicionTaken, whoHasPosicion, unregisterListenersByPrefix } from '../db.js';
+import { listLive, list, update, remove, createReferencia, isPosicionTaken, whoHasPosicion, bulkRemoveFiltered, smartImport, applyDoubtfulUpdates, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons, printRecord } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
@@ -70,6 +70,22 @@ function render(){
     canImport: canCreate(p),
     canExport: true
   }));
+  // Botón importación inteligente (upsert)
+  if(canCreate(p)){
+    actions.push(el('button', {
+      class:'btn btn-secondary btn-sm',
+      title:'Importar Excel sin duplicar — actualiza los que cambien, salta los iguales',
+      onclick: () => openSmartImport()
+    }, el('span', { html: '🔄' }), 'Importar (sin duplicar)'));
+  }
+  // Botón eliminar con filtro
+  if(canDelete(p)){
+    actions.push(el('button', {
+      class:'btn btn-danger btn-sm',
+      title:'Eliminar referencias filtrando por evento y/o fecha',
+      onclick: () => openBulkDelete()
+    }, el('span', { html: icon('trash') }), 'Eliminar en lote'));
+  }
 
   _container.appendChild(pageHeader({
     title:'Referencias',
@@ -131,17 +147,33 @@ function renderTable(){
   }
 
   const columns = [
-    { id:'posicion',  label:'Pos.',       render: r => el('span', { class:`cell-pos ${r.posicionManual ? 'manual' : ''}`, title: r.posicionManual ? 'Posición manual' : 'Posición automática' }, String(r.posicion || '—')) },
+    { id:'posicion',  label:'Nº Posición', render: r => el('span', { class:`cell-pos ${r.posicionManual ? 'manual' : ''}`, title: r.posicionManual ? 'Posición manual' : 'Posición automática' }, String(r.posicion || '—')) },
     { id:'referencia',label:'Referencia', render: r => { const ev = _eventos.find(e => e.id === r.eventoId); return el('span', { class:'cell-mute' }, r.referencia || ev?.nombre?.slice(0,8) || '—'); } },
+    { id:'llamador',  label:'Llamador',   render: r => r.llamador || '—', default:false },
     { id:'matricula', label:'Matrícula',  render: r => el('span', { class:'cell-plate' }, r.matricula || '—') },
+    { id:'remolque',  label:'Remolque',   render: r => r.remolque || '—', default:false },
     { id:'conductor', label:'Conductor',  render: r => r.conductor || '—' },
+    { id:'apellido',  label:'Apellido',   render: r => r.apellido || '—', default:false },
+    { id:'pasaporte', label:'Pasaporte/DNI', render: r => r.pasaporte || r.dni || '—', default:false },
     { id:'empresa',   label:'Empresa',    render: r => el('span', { class:'cell-mute' }, r.empresa || '—') },
     { id:'hall',      label:'Hall',       render: r => r.hall || '—' },
-    { id:'stand',     label:'Stand',      render: r => r.stand || '—', default:false },
+    { id:'puertaHall',label:'Puerta Hall',render: r => r.puertaHall || '—', default:false },
+    { id:'stand',     label:'Stand',      render: r => r.stand || '—' },
+    { id:'expositor', label:'Expositor',  render: r => r.expositor || '—', default:false },
+    { id:'montador',  label:'Montador',   render: r => r.montador || '—', default:false },
+    { id:'acceso',    label:'Acceso',     render: r => r.acceso || '—', default:false },
+    { id:'descarga',  label:'Descarga',   render: r => r.descarga || '—', default:false },
+    { id:'tipoVehiculo', label:'Tipo Vehículo', render: r => r.tipoVehiculo || '—', default:false },
+    { id:'pais',      label:'País',       render: r => r.pais || '—', default:false },
+    { id:'email',     label:'Email',      render: r => r.email ? chipEmail(r.email) : '—', default:false },
+    { id:'telefono',  label:'Teléfono',   render: r => r.telefono ? chipTel(r.telefono) : '—' },
+    { id:'fNacimiento', label:'F. Nacimiento', render: r => r.fNacimiento || '—', default:false },
+    { id:'fExpiracion', label:'F. Expiración', render: r => r.fExpiracion || '—', default:false },
     { id:'estado',    label:'Estado',     render: r => statusBadge(r.estado || 'prerregistrado') },
     { id:'horaEntrada', label:'Entrada',  render: r => el('span', { class:'cell-mute' }, r.horaEntrada || '—') },
     { id:'horaSalida',  label:'Salida',   render: r => el('span', { class:'cell-mute' }, r.horaSalida || '—') },
-    { id:'telefono',  label:'Teléfono',   render: r => r.telefono ? chipTel(r.telefono) : '—', default:false },
+    { id:'hora',      label:'Hora',       render: r => el('span', { class:'cell-mute' }, r.hora || '—'), default:false },
+    { id:'comentario',label:'Comentario', render: r => el('span', { class:'cell-mute' }, (r.comentario || '').slice(0,30) || '—'), default:false },
     { id:'notas',     label:'Notas',      render: r => el('span', { class:'cell-mute' }, (r.notas || '').slice(0,30) || '—'), default:false }
   ];
 
@@ -362,16 +394,32 @@ function openForm(item){
 
     const payload = {
       matricula: String(fd.matricula).toUpperCase().trim(),
-      conductor: fd.conductor || '',
-      telefono: fd.telefono || '',
-      empresa: fd.empresa || '',
-      referencia: fd.referencia || '',
-      hall: fd.hall || '',
-      stand: fd.stand || '',
       remolque: fd.remolque || '',
       tipoVehiculo: fd.tipoVehiculo || 'camion',
+      tacografo: fd.tacografo || '',
+      conductor: fd.conductor || '',
+      apellido: fd.apellido || '',
+      telefono: fd.telefono || '',
+      email: fd.email || '',
+      pasaporte: fd.pasaporte || '',
+      pais: fd.pais || '',
+      fNacimiento: fd.fNacimiento || '',
+      fExpiracion: fd.fExpiracion || '',
+      conductorLang: fd.conductorLang || 'es',
+      empresa: fd.empresa || '',
+      referencia: fd.referencia || '',
       eventoId: fd.eventoId,
+      expositor: fd.expositor || '',
+      montador: fd.montador || '',
+      llamador: fd.llamador || '',
+      hall: fd.hall || '',
+      puertaHall: fd.puertaHall || '',
+      stand: fd.stand || '',
+      acceso: fd.acceso || '',
+      descarga: fd.descarga || '',
       estado: fd.estado || 'prerregistrado',
+      hora: fd.hora || '',
+      comentario: fd.comentario || '',
       notas: fd.notas || ''
     };
     if(fd.posicion) payload.posicion = Number(fd.posicion);
@@ -406,26 +454,71 @@ function openForm(item){
   const eventoOpts = [{ value:'', label:'Seleccionar evento' }, ..._eventos.map(e => ({ value:e.id, label:e.nombre }))];
 
   const grid = el('div', { class:'form-grid' });
+
+  // ── Datos del vehículo ──
+  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Vehículo'));
   grid.appendChild(formField({ label:'Matrícula', name:'matricula', value:data.matricula, required:true, placeholder:'Ej: 1234ABC' }));
   grid.appendChild(formField({ label:'Remolque', name:'remolque', value:data.remolque, placeholder:'(opcional)' }));
-  grid.appendChild(formField({ label:'Conductor', name:'conductor', value:data.conductor }));
-  grid.appendChild(formField({ label:'Teléfono', name:'telefono', value:data.telefono }));
-  grid.appendChild(formField({ label:'Empresa', name:'empresa', value:data.empresa, full:true }));
-  grid.appendChild(formField({ label:'Evento', name:'eventoId', value:data.eventoId, options:eventoOpts, required:true, full:true }));
-  grid.appendChild(formField({ label:'Referencia', name:'referencia', value:data.referencia, placeholder:'Ej: MWC-2026-001' }));
-  grid.appendChild(formField({
-    label: isEdit ? 'Posición' : 'Posición (vacío = automática)',
-    name:'posicion', type:'number', value:data.posicion || '',
-    hint: isEdit ? 'Editar manualmente la posición' : 'Si dejas vacío, el sistema asigna la siguiente disponible'
-  }));
-  grid.appendChild(formField({ label:'Hall', name:'hall', value:data.hall }));
-  grid.appendChild(formField({ label:'Stand', name:'stand', value:data.stand }));
   grid.appendChild(formField({ label:'Tipo vehículo', name:'tipoVehiculo', value:data.tipoVehiculo, options:[
     { value:'camion', label:'Camión' },
     { value:'trailer', label:'Trailer' },
     { value:'furgoneta', label:'Furgoneta' },
+    { value:'semirremolque', label:'Semirremolque' },
     { value:'otro', label:'Otro' }
   ]}));
+  grid.appendChild(formField({ label:'Tacógrafo', name:'tacografo', value:data.tacografo, options:[
+    { value:'', label:'—' },
+    { value:'digital', label:'Digital' },
+    { value:'analogico', label:'Analógico' }
+  ]}));
+
+  // ── Datos del conductor ──
+  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Conductor'));
+  grid.appendChild(formField({ label:'Conductor (nombre)', name:'conductor', value:data.conductor }));
+  grid.appendChild(formField({ label:'Apellido', name:'apellido', value:data.apellido }));
+  grid.appendChild(formField({ label:'Teléfono', name:'telefono', value:data.telefono }));
+  grid.appendChild(formField({ label:'Email', name:'email', type:'email', value:data.email }));
+  grid.appendChild(formField({ label:'Pasaporte / DNI', name:'pasaporte', value:data.pasaporte }));
+  grid.appendChild(formField({ label:'País', name:'pais', value:data.pais, placeholder:'España, Polonia…' }));
+  grid.appendChild(formField({ label:'F. Nacimiento', name:'fNacimiento', type:'date', value:data.fNacimiento }));
+  grid.appendChild(formField({ label:'F. Expiración (carnet/doc)', name:'fExpiracion', type:'date', value:data.fExpiracion }));
+  grid.appendChild(formField({ label:'Idioma del conductor', name:'conductorLang', value:data.conductorLang || 'es', options:[
+    { value:'es', label:'Español' }, { value:'en', label:'English' },
+    { value:'fr', label:'Français' }, { value:'de', label:'Deutsch' },
+    { value:'it', label:'Italiano' }, { value:'pt', label:'Português' },
+    { value:'pl', label:'Polski' }, { value:'ro', label:'Română' },
+    { value:'nl', label:'Nederlands' }, { value:'bg', label:'Български' }
+  ]}));
+
+  // ── Empresa y evento ──
+  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Empresa y evento'));
+  grid.appendChild(formField({ label:'Empresa', name:'empresa', value:data.empresa }));
+  grid.appendChild(formField({ label:'Referencia / Booking', name:'referencia', value:data.referencia, placeholder:'Ej: MWC-2026-001' }));
+  grid.appendChild(formField({ label:'Evento', name:'eventoId', value:data.eventoId, options:eventoOpts, required:true, full:true }));
+  grid.appendChild(formField({ label:'Expositor', name:'expositor', value:data.expositor }));
+  grid.appendChild(formField({ label:'Montador', name:'montador', value:data.montador }));
+  grid.appendChild(formField({ label:'Llamador', name:'llamador', value:data.llamador }));
+
+  // ── Ubicación y acceso ──
+  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Ubicación y acceso'));
+  grid.appendChild(formField({
+    label: isEdit ? 'Nº Posición' : 'Nº Posición (vacío = automática)',
+    name:'posicion', type:'number', value:data.posicion || '',
+    hint: isEdit ? 'Editar manualmente la posición' : 'Si dejas vacío, el sistema asigna la siguiente disponible'
+  }));
+  grid.appendChild(formField({ label:'Hall', name:'hall', value:data.hall }));
+  grid.appendChild(formField({ label:'Puerta Hall', name:'puertaHall', value:data.puertaHall }));
+  grid.appendChild(formField({ label:'Stand', name:'stand', value:data.stand }));
+  grid.appendChild(formField({ label:'Acceso', name:'acceso', value:data.acceso }));
+  grid.appendChild(formField({ label:'Descarga', name:'descarga', value:data.descarga, options:[
+    { value:'', label:'—' },
+    { value:'carga', label:'Carga' },
+    { value:'descarga', label:'Descarga' },
+    { value:'ambas', label:'Carga y descarga' }
+  ]}));
+
+  // ── Estado y notas ──
+  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Estado'));
   grid.appendChild(formField({ label:'Estado', name:'estado', value:data.estado, options:[
     { value:'prerregistrado', label:'Prerregistrado' },
     { value:'en_camino', label:'En camino' },
@@ -433,6 +526,8 @@ function openForm(item){
     { value:'dentro_fira', label:'Dentro Fira' },
     { value:'salida', label:'Salida' }
   ]}));
+  grid.appendChild(formField({ label:'Hora', name:'hora', type:'time', value:data.hora }));
+  grid.appendChild(formField({ label:'Comentario', name:'comentario', type:'textarea', value:data.comentario, full:true }));
   grid.appendChild(formField({ label:'Notas', name:'notas', type:'textarea', value:data.notas, full:true }));
   form.appendChild(grid);
 
@@ -529,4 +624,250 @@ async function deleteItem(item){
     await remove('referencias', item.id);
     toast('Eliminado', 'ok');
   } catch(e){ toast(e.message, 'err'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BORRADO MASIVO CON FILTRO (evento + fecha)
+// ═══════════════════════════════════════════════════════════════
+function openBulkDelete(){
+  let selEvento = _filterEvento || '';
+  let selFecha = '';
+
+  const body = el('div', { class:'bulk-del-body' });
+  body.appendChild(el('p', { class:'cell-mute', style:{marginTop:0, fontSize:'13px'} },
+    'Selecciona un filtro para eliminar referencias en lote. Las eliminadas van a la Papelera, se pueden restaurar.'));
+
+  // Selector evento
+  body.appendChild(el('label', { class:'edit-label' }, 'Evento'));
+  const evSel = el('select', { class:'field-input', onchange: e => { selEvento = e.target.value; updatePreview(); } });
+  evSel.appendChild(el('option', { value:'' }, '— Todos los eventos —'));
+  for(const ev of _eventos){
+    evSel.appendChild(el('option', { value: ev.id, selected: ev.id === selEvento ? 'selected' : null }, ev.nombre));
+  }
+  body.appendChild(evSel);
+
+  // Selector fecha
+  body.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} }, 'Fecha (opcional)'));
+  const fechaInput = el('input', {
+    type:'date', class:'field-input',
+    onchange: e => { selFecha = e.target.value; updatePreview(); }
+  });
+  body.appendChild(fechaInput);
+
+  // Preview
+  const preview = el('div', { class:'bulk-del-preview' });
+  body.appendChild(preview);
+
+  function updatePreview(){
+    clear(preview);
+    // Contar coincidencias en _items (ya cargados)
+    const matches = _items.filter(r => {
+      if(r._deleted) return false;
+      if(selEvento && r.eventoId !== selEvento) return false;
+      if(selFecha && r.fechaKey !== selFecha) return false;
+      return true;
+    });
+    if(matches.length === 0){
+      preview.appendChild(el('div', { class:'bulk-del-warn empty' },
+        'No hay referencias que coincidan con este filtro.'));
+    } else {
+      preview.appendChild(el('div', { class:'bulk-del-warn' },
+        el('strong', {}, `${matches.length} referencias`),
+        ` serán enviadas a la Papelera.`));
+    }
+    preview._count = matches.length;
+  }
+  updatePreview();
+
+  const footer = el('div', { class:'modal-foot' },
+    el('button', { class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
+    el('button', {
+      class:'btn btn-danger',
+      onclick: async () => {
+        const count = preview._count || 0;
+        if(count === 0){ toast('No hay nada que eliminar con ese filtro', 'warn'); return; }
+        const ok = await confirmModal({
+          title: '⚠ Confirmar borrado en lote',
+          message: `Vas a eliminar ${count} referencias` +
+            (selEvento ? ` del evento seleccionado` : ' de TODOS los eventos') +
+            (selFecha ? ` con fecha ${selFecha}` : '') +
+            `.\n\nIrán a la Papelera. ¿Continuar?`,
+          danger: true, okText: `Eliminar ${count}`
+        });
+        if(!ok) return;
+        try{
+          const filter = {};
+          if(selEvento) filter.eventoId = selEvento;
+          if(selFecha) filter.fecha = selFecha;
+          const deleted = await bulkRemoveFiltered('referencias', filter);
+          toast(`${deleted} referencias enviadas a Papelera`, 'ok', 4000);
+          closeModal();
+        } catch(e){
+          toast(e.message || 'Error al eliminar en lote', 'err');
+        }
+      }
+    }, 'Eliminar en lote')
+  );
+
+  openModal({ title:'🗑 Eliminar referencias en lote', body, size:'sm' });
+  setTimeout(() => body.parentElement.appendChild(footer), 60);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORTACIÓN INTELIGENTE (upsert) — Matrícula + Referencia
+// ═══════════════════════════════════════════════════════════════
+async function openSmartImport(){
+  const { parseExcelRows } = await import('../excel.js');
+
+  let parsedRows = null;
+  let importResult = null;
+  const doubtfulAccepted = new Set(); // ids aceptados para actualizar
+
+  const body = el('div', { class:'smart-import-body' });
+
+  body.appendChild(el('p', { class:'cell-mute', style:{marginTop:0, fontSize:'13px'} },
+    'Sube un Excel. Los registros se identifican por ',
+    el('strong', {}, 'Matrícula + Referencia'), '. ',
+    'Los iguales se saltan, los nuevos se crean, y los que tengan datos distintos se muestran para que decidas.'));
+
+  // Selector de evento destino
+  body.appendChild(el('label', { class:'edit-label' }, 'Evento destino'));
+  const evSel = el('select', { class:'field-input' });
+  evSel.appendChild(el('option', { value:'' }, '— Sin evento / mantener el del Excel —'));
+  for(const ev of _eventos){
+    evSel.appendChild(el('option', {
+      value: ev.id,
+      selected: ev.id === _filterEvento ? 'selected' : null
+    }, ev.nombre));
+  }
+  body.appendChild(evSel);
+
+  // Input archivo
+  body.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} }, 'Archivo Excel'));
+  const fileInput = el('input', {
+    type:'file', accept:'.xlsx,.xls,.csv', class:'field-input'
+  });
+  body.appendChild(fileInput);
+
+  // Zona de resultado
+  const resultZone = el('div', { class:'smart-import-result' });
+  body.appendChild(resultZone);
+
+  // Botón analizar
+  const analyzeBtn = el('button', { class:'btn btn-secondary', style:{marginTop:'10px'},
+    onclick: async () => {
+      const file = fileInput.files[0];
+      if(!file){ toast('Selecciona un archivo', 'warn'); return; }
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = 'Analizando…';
+      try{
+        parsedRows = await parseExcelRows('referencias', file);
+        if(parsedRows.length === 0){
+          toast('El Excel no tiene filas válidas (falta matrícula)', 'warn');
+          analyzeBtn.disabled = false;
+          analyzeBtn.textContent = 'Analizar archivo';
+          return;
+        }
+        importResult = await smartImport('referencias', parsedRows, {
+          eventoId: evSel.value || null
+        });
+        renderResult();
+        toast(`Análisis: ${importResult.created} nuevos · ${importResult.skipped} iguales · ${importResult.doubtful.length} dudosos`, 'ok', 4000);
+      } catch(e){
+        toast(e.message || 'Error al analizar el Excel', 'err');
+      }
+      analyzeBtn.disabled = false;
+      analyzeBtn.textContent = 'Analizar archivo';
+    }
+  }, 'Analizar archivo');
+  body.appendChild(analyzeBtn);
+
+  function renderResult(){
+    clear(resultZone);
+    if(!importResult) return;
+
+    // Resumen con chips
+    resultZone.appendChild(el('div', { class:'smart-import-summary' },
+      el('span', { class:'si-chip si-created' }, `✓ ${importResult.created} creados`),
+      el('span', { class:'si-chip si-skipped' }, `= ${importResult.skipped} sin cambios`),
+      el('span', { class:'si-chip si-doubtful' }, `? ${importResult.doubtful.length} dudosos`)
+    ));
+
+    // Tabla de dudosos
+    if(importResult.doubtful.length > 0){
+      resultZone.appendChild(el('p', {
+        style:{fontSize:'12px', fontWeight:'600', marginTop:'12px', marginBottom:'6px'}
+      }, 'Registros con match dudoso — marca los que quieras actualizar:'));
+
+      const tbl = el('div', { class:'doubtful-list' });
+      for(const d of importResult.doubtful){
+        const row = el('div', { class:'doubtful-row' });
+        const cb = el('input', {
+          type:'checkbox',
+          onchange: e => {
+            if(e.target.checked) doubtfulAccepted.add(d.id);
+            else doubtfulAccepted.delete(d.id);
+          }
+        });
+        const info = el('div', { class:'doubtful-info' });
+        info.appendChild(el('div', { class:'doubtful-head' },
+          el('span', { class:'cell-plate' }, d.matricula),
+          el('span', { class:'cell-mute' }, ' · Ref: ' + (d.referencia || '—'))
+        ));
+        // Mostrar las diferencias campo por campo
+        const diffs = el('div', { class:'doubtful-diffs' });
+        for(const [field, diff] of Object.entries(d.diffs)){
+          diffs.appendChild(el('div', { class:'doubtful-diff' },
+            el('span', { class:'dd-field' }, field + ': '),
+            el('span', { class:'dd-old' }, diff.actual || '(vacío)'),
+            el('span', { class:'dd-arrow' }, ' → '),
+            el('span', { class:'dd-new' }, diff.nuevo)
+          ));
+        }
+        info.appendChild(diffs);
+        row.appendChild(el('label', { class:'doubtful-label' }, cb, info));
+        tbl.appendChild(row);
+      }
+      resultZone.appendChild(tbl);
+
+      // Botones marcar todos / ninguno
+      resultZone.appendChild(el('div', { class:'flex gap-2', style:{marginTop:'6px'} },
+        el('button', { class:'btn btn-ghost btn-sm', onclick: () => {
+          importResult.doubtful.forEach(d => doubtfulAccepted.add(d.id));
+          resultZone.querySelectorAll('.doubtful-row input[type=checkbox]').forEach(c => c.checked = true);
+        }}, 'Marcar todos'),
+        el('button', { class:'btn btn-ghost btn-sm', onclick: () => {
+          doubtfulAccepted.clear();
+          resultZone.querySelectorAll('.doubtful-row input[type=checkbox]').forEach(c => c.checked = false);
+        }}, 'Desmarcar todos')
+      ));
+    }
+  }
+
+  const footer = el('div', { class:'modal-foot' },
+    el('button', { class:'btn btn-secondary', onclick: closeModal }, 'Cerrar'),
+    el('button', {
+      class:'btn btn-primary',
+      onclick: async () => {
+        if(!importResult){ toast('Primero analiza un archivo', 'warn'); return; }
+        const accepted = importResult.doubtful.filter(d => doubtfulAccepted.has(d.id));
+        try{
+          let msg = [];
+          if(importResult.created > 0) msg.push(`${importResult.created} ya creados`);
+          if(accepted.length > 0){
+            const upd = await applyDoubtfulUpdates('referencias', accepted);
+            msg.push(`${upd} actualizados`);
+          }
+          if(msg.length === 0) msg.push('Sin cambios aplicados');
+          toast(msg.join(' · '), 'ok', 4000);
+          closeModal();
+        } catch(e){
+          toast(e.message || 'Error al aplicar cambios', 'err');
+        }
+      }
+    }, 'Aplicar cambios seleccionados')
+  );
+
+  openModal({ title:'🔄 Importar Excel sin duplicar', body, size:'lg' });
+  setTimeout(() => body.parentElement.appendChild(footer), 60);
 }

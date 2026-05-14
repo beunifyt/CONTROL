@@ -46,14 +46,30 @@ const SCHEMAS = {
     { col:'Referencia',   field:'referencia',    desc:'Nº de booking/referencia',  example:'MWC-2026-001' },
     { col:'Matricula',    field:'matricula',     desc:'Matrícula vehículo',         example:'1234ABC' },
     { col:'Remolque',     field:'remolque',      desc:'Matrícula remolque',         example:'R-5678' },
+    { col:'TipoVehiculo', field:'tipoVehiculo',  desc:'camion|trailer|furgoneta|semirremolque', example:'camion' },
+    { col:'Tacografo',    field:'tacografo',     desc:'digital|analogico',           example:'digital' },
     { col:'Conductor',    field:'conductor',     desc:'Nombre del conductor',       example:'Juan García' },
+    { col:'Apellido',     field:'apellido',      desc:'Apellido del conductor',     example:'García' },
     { col:'Telefono',     field:'telefono',      desc:'Teléfono del conductor',     example:'+34 666 123 456' },
+    { col:'Email',        field:'email',         desc:'Email del conductor',        example:'juan@empresa.com' },
+    { col:'Pasaporte',    field:'pasaporte',     desc:'Pasaporte o DNI',             example:'12345678X' },
+    { col:'Pais',         field:'pais',          desc:'País del conductor',          example:'España' },
+    { col:'FNacimiento',  field:'fNacimiento',   desc:'Fecha nacimiento YYYY-MM-DD', example:'1985-03-12' },
+    { col:'FExpiracion',  field:'fExpiracion',   desc:'Fecha expiración doc',        example:'2030-01-01' },
+    { col:'ConductorLang',field:'conductorLang', desc:'Idioma conductor (es,en,fr…)', example:'es' },
     { col:'Empresa',      field:'empresa',       desc:'Empresa transportista',      example:'Logística Demo SL' },
+    { col:'Expositor',    field:'expositor',     desc:'Expositor',                   example:'Stand Acme' },
+    { col:'Montador',     field:'montador',      desc:'Empresa montadora',           example:'Montajes SL' },
+    { col:'Llamador',     field:'llamador',      desc:'Persona que llama',           example:'' },
     { col:'Hall',         field:'hall',          desc:'Hall destino',                example:'2' },
+    { col:'PuertaHall',   field:'puertaHall',    desc:'Puerta del hall',             example:'P2' },
     { col:'Stand',        field:'stand',         desc:'Stand',                       example:'B-44' },
-    { col:'TipoVehiculo', field:'tipoVehiculo',  desc:'camion|trailer|furgoneta',   example:'camion' },
+    { col:'Acceso',       field:'acceso',        desc:'Acceso',                      example:'' },
+    { col:'Descarga',     field:'descarga',      desc:'carga|descarga|ambas',        example:'descarga' },
     { col:'Posicion',     field:'posicion',      desc:'Pos. (vacío = automática)',   example:'' },
     { col:'Estado',       field:'estado',        desc:'prerregistrado|en_camino|rampa_parking|dentro_fira|salida', example:'prerregistrado' },
+    { col:'Hora',         field:'hora',          desc:'Hora HH:MM',                  example:'09:30' },
+    { col:'Comentario',   field:'comentario',    desc:'Comentario',                  example:'' },
     { col:'Notas',        field:'notas',         desc:'Notas adicionales',           example:'' }
   ],
   ingresos: [
@@ -229,6 +245,55 @@ export async function downloadTemplate(modulo, opts = {}){
 //  - conductores: por dni
 //  - empresas:    por cif
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Lee un Excel y devuelve las filas mapeadas al schema del módulo,
+ * SIN guardar nada en la base. Útil para previsualizar o para
+ * pasarlas a smartImport().
+ *
+ * @param {string} modulo
+ * @param {File} file
+ * @returns {Promise<Array<object>>} filas con los campos del schema
+ */
+export async function parseExcelRows(modulo, file){
+  const schema = SCHEMAS[modulo];
+  if(!schema) throw new Error(`Módulo desconocido: ${modulo}`);
+
+  const XLSX = await loadXLSX();
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+
+  const out = [];
+  for(const row of rows){
+    // Saltar filas totalmente vacías
+    if(!Object.values(row).some(v => String(v).trim() !== '')) continue;
+
+    const payload = {};
+    for(const c of schema){
+      let v = row[c.col];
+      if(v == null) v = '';
+      v = String(v).trim();
+      if(c.field === 'matricula' || c.field === 'remolque' || c.field === 'cif'){
+        v = v.toUpperCase();
+      }
+      if(c.field === 'idiomas' || c.field === 'matriculas'){
+        v = v ? v.split(',').map(s => s.trim()).filter(Boolean) : [];
+      }
+      if(c.field === 'posicion'){
+        v = v ? Number(v) : null;
+      }
+      payload[c.field] = v;
+    }
+    // Saltar fila sin campo clave
+    const keyField = keyFieldFor(modulo);
+    if(!payload[keyField]) continue;
+    out.push(payload);
+  }
+  return out;
+}
+
 export async function importFromExcel(modulo, file, opts = {}){
   const schema = SCHEMAS[modulo];
   if(!schema) throw new Error(`Módulo desconocido: ${modulo}`);

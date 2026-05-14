@@ -1,10 +1,15 @@
 // ═══════════════════════════════════════════════════════════════
-// gemini.js — Cliente Google Gemini API (Free tier)
+// gemini.js — Cliente Google Gemini API (Free tier verificado mayo 2026)
 //
-// Modelos Free tier:
-//   - gemini-2.0-flash:     200 req/día,  15 req/min  (calidad alta)
-//   - gemini-1.5-flash-8b:  1500 req/día, 15 req/min  ← RECOMENDADO
-//   - gemini-1.5-flash:     1500 req/día, 15 req/min
+// Modelos Free tier ACTIVOS:
+//   - gemini-2.5-flash-lite: 1000 req/día, 15 req/min  ← RECOMENDADO
+//   - gemini-2.5-flash:       250 req/día, 10 req/min  (más calidad)
+//   - gemini-2.5-pro:         100 req/día,  5 req/min  (máxima calidad)
+//
+// DEPRECADOS (no usar):
+//   - gemini-1.5-flash-8b (deprecado)
+//   - gemini-2.0-flash    (retirado 3 marzo 2026)
+//   - gemini-1.5-flash    (deprecado)
 //
 // Para activar:
 //   1. Ve a https://aistudio.google.com/app/apikey y crea una API key
@@ -13,7 +18,7 @@
 // ═══════════════════════════════════════════════════════════════
 import { logger } from './logger.js';
 
-const GEMINI_MODEL = 'gemini-2.5-flash-lite'; // 1500 req/día gratis
+const GEMINI_MODEL = 'gemini-2.5-flash-lite'; // 1000 req/día gratis
 
 let _apiKey = '';
 try{

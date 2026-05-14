@@ -2,7 +2,7 @@
 import { db } from './firebase-config.js';
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
-  query, where, orderBy, limit, onSnapshot,
+  query, where, orderBy, limit, onSnapshot, writeBatch,
   runTransaction, serverTimestamp, Timestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import { genId, log, logErr, logger, todayKey } from './utils.js';
@@ -124,6 +124,176 @@ export async function removeHard(coll, id){
   // Eliminación permanente (solo desde papelera)
   const ref = doc(db, coll, id);
   await deleteDoc(ref);
+}
+
+/**
+ * Borrado masivo con filtro. Hace soft-delete (papelera) de todos los
+ * registros de una colección que cumplan eventoId y/o fecha.
+ *
+ * @param {string} coll - colección ('referencias', 'ingresos', etc.)
+ * @param {object} filter - { eventoId, fecha } — campos opcionales
+ * @returns {Promise<number>} cantidad de registros borrados
+ */
+export async function bulkRemoveFiltered(coll, filter = {}){
+  const constraints = [];
+  if(filter.eventoId) constraints.push(where('eventoId', '==', filter.eventoId));
+  if(filter.fecha){
+    // Permitir filtrar por fechaKey o fecha_entrada
+    constraints.push(where('fechaKey', '==', filter.fecha));
+  }
+  const q = constraints.length
+    ? query(collection(db, coll), ...constraints)
+    : query(collection(db, coll));
+  const snap = await getDocs(q);
+  if(snap.empty) return 0;
+
+  const u = window.__beunifyt_app?.auth?.currentUser;
+  // writeBatch admite máx 500 ops; trocear si hace falta
+  const docs = snap.docs.filter(d => !d.data()._deleted);
+  let done = 0;
+  for(let i = 0; i < docs.length; i += 450){
+    const chunk = docs.slice(i, i + 450);
+    const batch = writeBatch(db);
+    for(const d of chunk){
+      batch.set(d.ref, {
+        _deleted: true,
+        _deletedAt: serverTimestamp(),
+        _deletedBy: u?.email || null,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    }
+    await batch.commit();
+    done += chunk.length;
+  }
+  return done;
+}
+
+/**
+ * Importación inteligente (upsert) por clave Matrícula + Referencia.
+ *
+ * @param {string} coll - colección
+ * @param {Array<object>} rows - filas del Excel ya parseadas
+ * @param {object} opts - { eventoId }
+ * @returns {Promise<{created:number, updated:number, skipped:number, doubtful:Array}>}
+ *   doubtful = registros con misma clave pero datos distintos (para revisión)
+ */
+export async function smartImport(coll, rows, opts = {}){
+  const result = { created: 0, updated: 0, skipped: 0, doubtful: [] };
+  if(!Array.isArray(rows) || rows.length === 0) return result;
+
+  // Cargar registros existentes del evento (o todos)
+  const constraints = [];
+  if(opts.eventoId) constraints.push(where('eventoId', '==', opts.eventoId));
+  const q = constraints.length
+    ? query(collection(db, coll), ...constraints)
+    : query(collection(db, coll));
+  const snap = await getDocs(q);
+  const existing = snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(r => !r._deleted);
+
+  // Indexar por clave matricula|referencia (normalizada)
+  const keyOf = (r) => {
+    const mat = String(r.matricula || '').toUpperCase().replace(/[\s-]/g, '').trim();
+    const ref = String(r.referencia || r.ref || '').toUpperCase().trim();
+    return mat + '|' + ref;
+  };
+  const index = new Map();
+  for(const r of existing) index.set(keyOf(r), r);
+
+  // Campos que comparamos para detectar "match dudoso"
+  const COMPARE_FIELDS = ['conductor', 'telefono', 'empresa', 'hall', 'stand', 'tipoVehiculo', 'remolque'];
+
+  const toCreate = [];
+  const toUpdate = [];
+
+  for(const row of rows){
+    const key = keyOf(row);
+    const found = index.get(key);
+    if(!found){
+      toCreate.push(row);
+      continue;
+    }
+    // Comparar campos: ¿son iguales?
+    let identical = true;
+    const diffs = {};
+    for(const f of COMPARE_FIELDS){
+      const a = String(found[f] ?? '').trim();
+      const b = String(row[f] ?? '').trim();
+      if(a !== b && b !== ''){ // solo cuenta si el Excel trae un valor distinto no vacío
+        identical = false;
+        diffs[f] = { actual: a, nuevo: b };
+      }
+    }
+    if(identical){
+      result.skipped++;
+    } else {
+      // Match dudoso: misma clave, datos distintos → para revisión
+      result.doubtful.push({
+        id: found.id,
+        matricula: row.matricula,
+        referencia: row.referencia || row.ref || '',
+        diffs,
+        rowData: row
+      });
+    }
+  }
+
+  // Crear nuevos
+  for(const row of toCreate){
+    const payload = {
+      matricula: String(row.matricula || '').toUpperCase().trim(),
+      conductor: row.conductor || '',
+      telefono: row.telefono || '',
+      empresa: row.empresa || '',
+      referencia: row.referencia || row.ref || '',
+      hall: row.hall || '',
+      stand: row.stand || '',
+      remolque: row.remolque || '',
+      tipoVehiculo: row.tipoVehiculo || 'camion',
+      eventoId: opts.eventoId || row.eventoId || '',
+      estado: row.estado || 'prerregistrado',
+      notas: row.notas || ''
+    };
+    try{
+      await addDoc(collection(db, coll), {
+        ...payload,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      result.created++;
+    } catch(e){
+      logErr('smartImport create', e);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Aplica las actualizaciones de los registros "dudosos" que el usuario
+ * confirmó tras revisar smartImport.
+ *
+ * @param {string} coll
+ * @param {Array<object>} confirmedItems - items de result.doubtful que el usuario aceptó
+ * @returns {Promise<number>} cantidad actualizada
+ */
+export async function applyDoubtfulUpdates(coll, confirmedItems){
+  let count = 0;
+  for(const item of confirmedItems){
+    try{
+      const payload = {};
+      for(const [field, diff] of Object.entries(item.diffs)){
+        payload[field] = diff.nuevo;
+      }
+      payload.updatedAt = serverTimestamp();
+      await updateDoc(doc(db, coll, item.id), payload);
+      count++;
+    } catch(e){
+      logErr('applyDoubtfulUpdates', e);
+    }
+  }
+  return count;
 }
 
 async function _nextCounter(counterId){

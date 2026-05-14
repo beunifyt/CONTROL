@@ -35,7 +35,7 @@ export function navigate(name){
 }
 
 function parseHash(){
-  const m = location.hash.match(/^#\/(\w+)/);
+  const m = location.hash.match(/^#\/([\w-]+)/);
   return m ? m[1] : 'dashboard';
 }
 

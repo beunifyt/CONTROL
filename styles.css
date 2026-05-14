@@ -1577,3 +1577,60 @@ body[data-theme="contrast"] .table td{ border-width:1.5px !important; }
   background:#DBEAFE; color:#1D4ED8;
 }
 .word-btn svg{ display:block; }
+
+/* ═══════════════════════════════════════════════
+   Borrado en lote + Importación inteligente
+═══════════════════════════════════════════════ */
+.bulk-del-body, .smart-import-body{ min-width:380px; }
+.bulk-del-preview{ margin-top:14px; }
+.bulk-del-warn{
+  padding:10px 14px; border-radius:8px;
+  background:#FEF2F2; border:1px solid #FCA5A5; color:#991B1B;
+  font-size:13px;
+}
+.bulk-del-warn.empty{
+  background:var(--surface-2); border-color:var(--border); color:var(--text-mute);
+}
+
+.smart-import-result{ margin-top:14px; }
+.smart-import-summary{
+  display:flex; gap:8px; flex-wrap:wrap;
+}
+.si-chip{
+  padding:4px 12px; border-radius:14px; font-size:12px; font-weight:600;
+}
+.si-chip.si-created{ background:#DCFCE7; color:#15803D; }
+.si-chip.si-skipped{ background:#F3F4F6; color:#4B5563; }
+.si-chip.si-doubtful{ background:#FEF3C7; color:#B45309; }
+
+.doubtful-list{
+  display:flex; flex-direction:column; gap:6px;
+  max-height:340px; overflow-y:auto;
+  border:1px solid var(--border); border-radius:8px; padding:8px;
+}
+.doubtful-row{
+  border:1px solid var(--border); border-radius:8px;
+  background:#fff;
+}
+.doubtful-label{
+  display:flex; gap:10px; align-items:flex-start;
+  padding:10px 12px; cursor:pointer;
+}
+.doubtful-label input[type=checkbox]{ margin-top:2px; flex-shrink:0; }
+.doubtful-info{ flex:1; min-width:0; }
+.doubtful-head{ font-size:13px; margin-bottom:4px; }
+.doubtful-diffs{ display:flex; flex-direction:column; gap:2px; }
+.doubtful-diff{ font-size:11px; }
+.dd-field{ color:var(--text-mute); font-weight:600; }
+.dd-old{ color:#DC2626; text-decoration:line-through; }
+.dd-arrow{ color:var(--text-mute); }
+.dd-new{ color:#15803D; font-weight:600; }
+
+/* Títulos de sección dentro de formularios */
+.form-section-title{
+  font-size:11px; font-weight:700; text-transform:uppercase;
+  letter-spacing:0.05em; color:var(--primary);
+  padding:8px 0 2px; margin-top:4px;
+  border-bottom:1px solid var(--border);
+}
+.form-section-title:first-child{ margin-top:0; }

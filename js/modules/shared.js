@@ -225,6 +225,10 @@ export function printRecord(modulo, record){
       recordId: record.id
     }));
   } catch(_){}
-  // Navegar al módulo de impresión
-  window.location.hash = '#impresion';
+  // Navegar al módulo de impresión usando el router (#/impresion)
+  if(window.beunifyt && typeof window.beunifyt.navigate === 'function'){
+    window.beunifyt.navigate('impresion');
+  } else {
+    location.hash = '#/impresion';
+  }
 }
