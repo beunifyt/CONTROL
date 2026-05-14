@@ -2,7 +2,7 @@
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, fmtDate, matchesSearch } from '../utils.js';
 import { getDefaultEventoId } from '../utils.js';
 import { listLive, list, create, update, remove, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
+import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons, printRecord } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 import { smartTable, savedFiltersBar } from '../table-helpers.js';
@@ -267,6 +267,8 @@ function rowActions(a, p){
   if(canEdit(p)){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => openForm(a), title:'Editar' },
       el('span', { html: icon('edit') })));
+    wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => printRecord('agenda', a), title:'Imprimir pase' },
+      el('span', { html: icon('print') })));
   }
   if(canDelete(p)){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => deleteItem(a), title:'Eliminar' },

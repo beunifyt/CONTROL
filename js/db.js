@@ -160,9 +160,33 @@ export async function isPosicionTaken(coll, eventoId, posicion, options={}){
   if(options.day){
     constraints.push(where('fechaKey', '==', options.day));
   }
-  const q = query(collection(db, coll), ...constraints, limit(1));
+  const q = query(collection(db, coll), ...constraints, limit(5));
   const snap = await getDocs(q);
-  return !snap.empty;
+  if(snap.empty) return false;
+  // Excluir el propio registro (al editar)
+  const docs = snap.docs.filter(d => d.id !== options.excludeId);
+  return docs.length > 0;
+}
+
+/**
+ * Devuelve la referencia/ingreso que tiene una posición ocupada en un evento.
+ * Útil para mostrar al usuario quién la tiene antes de reasignar.
+ */
+export async function whoHasPosicion(coll, eventoId, posicion, options={}){
+  if(!eventoId || !posicion) return null;
+  const constraints = [
+    where('eventoId', '==', eventoId),
+    where('posicion', '==', Number(posicion))
+  ];
+  if(options.day){
+    constraints.push(where('fechaKey', '==', options.day));
+  }
+  const q = query(collection(db, coll), ...constraints, limit(5));
+  const snap = await getDocs(q);
+  if(snap.empty) return null;
+  const docs = snap.docs.filter(d => d.id !== options.excludeId);
+  if(docs.length === 0) return null;
+  return { id: docs[0].id, ...docs[0].data() };
 }
 
 export async function createReferencia(data){

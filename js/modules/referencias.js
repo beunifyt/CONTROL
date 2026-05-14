@@ -1,8 +1,8 @@
 // referencias.js — Referencias (Ingresos tipo 1) con campo Posición
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, chipTel } from '../utils.js';
 import { getDefaultEventoId } from '../utils.js';
-import { listLive, list, update, remove, createReferencia, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
+import { listLive, list, update, remove, createReferencia, isPosicionTaken, whoHasPosicion, unregisterListenersByPrefix } from '../db.js';
+import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons, printRecord } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 import { attachAutocomplete, applyDataToForm, markAgendaArrived } from '../autocomplete.js';
@@ -201,6 +201,8 @@ function rowActions(r, p){
       el('span', { html: icon('edit') })));
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => openHistorial(r), title:'Historial / Incidencias' },
       el('span', { html: '📋' })));
+    wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => printRecord('referencias', r), title:'Imprimir pase' },
+      el('span', { html: icon('print') })));
   }
   if(canDelete(p)){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => deleteItem(r), title:'Eliminar' },
@@ -376,12 +378,17 @@ function openForm(item){
 
     try{
       if(isEdit){
-        // P-03.1: si la posición cambió, validar colisión
+        // Validación de posición — avisar quién la ocupa
         if(payload.posicion && Number(item.posicion) !== Number(payload.posicion)){
-          const taken = await isPosicionTaken('referencias', payload.eventoId, payload.posicion);
-          if(taken){
-            toast(`La posición ${payload.posicion} ya está ocupada`, 'err');
-            return;
+          const occupier = await whoHasPosicion('referencias', payload.eventoId, payload.posicion, { excludeId: item.id });
+          if(occupier){
+            const ok = await confirmModal({
+              title: '⚠ Posición ocupada',
+              message: `La posición ${payload.posicion} ya está asignada a la matrícula ${occupier.matricula} (${occupier.conductor || 'sin conductor'}).\n\n¿Quieres asignarla igualmente? Se permite duplicado, pero conviene reasignar al otro vehículo después.`,
+              okText: 'Asignar igualmente',
+              danger: true
+            });
+            if(!ok) return;
           }
           payload.posicionManual = true;
         }

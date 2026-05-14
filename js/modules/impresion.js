@@ -165,12 +165,34 @@ export async function init(container){
   loadStateFromLocal();
   _state.eventos = await list('eventos', {orderBy:'createdAt', order:'desc'});
   _state.recintos = await list('recintos', {orderBy:'nombre'});
+
+  // Si llegamos desde otro módulo con un registro a imprimir
+  try{
+    const target = sessionStorage.getItem('beunifyt_print_target');
+    if(target){
+      const t = JSON.parse(target);
+      sessionStorage.removeItem('beunifyt_print_target');
+      if(t.modulo) _state.modulo = t.modulo;
+      if(t.eventoId) _state.eventoId = t.eventoId;
+      if(t.recordId) _state.selectedRecordId = t.recordId;
+      _state._autoOpenPrintOnLoad = true;
+    }
+  } catch(_){}
+
   if(!_state.eventoId && _state.eventos.length){
     _state.eventoId = _state.eventos[0].id;
   }
   await loadTemplate();
   await loadRecords();
   render();
+
+  // Si llegamos para imprimir, abrir preview/imprimir automáticamente tras render
+  if(_state._autoOpenPrintOnLoad){
+    delete _state._autoOpenPrintOnLoad;
+    setTimeout(() => {
+      try{ doPrint(); }catch(e){ console.warn('autoPrint fail', e); }
+    }, 400);
+  }
 }
 
 export function destroy(){
@@ -398,11 +420,6 @@ function renderTopbar(){
     onclick: openPrintPreview
   }, '🔍 Previa'));
 
-  row2.appendChild(el('button', {
-    class:'btn btn-secondary btn-sm',
-    title:'Imprime un pase por cada registro del evento (saltando empresas bloqueadas). Útil al inicio del evento para imprimir todos los pases de una vez.',
-    onclick: openBatchPrint
-  }, '🖨 Batch'));
   row2.appendChild(el('button', { class:'btn btn-primary', onclick: doPrint }, '🖨 Imprimir'));
 
   wrap.appendChild(row2);
@@ -1512,49 +1529,85 @@ function renderEditarTab(){
       onchange: e => { conf.color = e.target.value; render(); } })
   ));
 
-  // ── Formato de texto (estilo Word) ─────────────────────
-  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} }, 'Formato'));
-  const fmtRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:'4px' } });
-  const fmtBtn = (key, label, title) => {
-    const active = !!conf[key];
-    fmtRow.appendChild(el('button', {
-      class:`btn btn-sm ${active ? 'btn-primary' : 'btn-secondary'}`,
-      title, style:{ padding:'6px 4px', fontWeight:'600' },
-      onclick: () => { conf[key] = !active; render(); }
-    }, label));
-  };
-  fmtBtn('bold',      'B',  'Negrita');
-  fmtBtn('italic',    'I',  'Cursiva');
-  fmtBtn('underline', 'U',  'Subrayado');
-  fmtBtn('strike',    'S̶',  'Tachado');
-  fmtBtn('highlight', '⛛',  'Resaltar fondo ámbar');
-  wrap.appendChild(fmtRow);
+  // ── Formato de texto (estilo Word real) ─────────────────────
+  // SVGs minimalistas estilo Word/Office
+  const SVG_B = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M15.6 11.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 7.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"/></svg>';
+  const SVG_I = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z"/></svg>';
+  const SVG_U = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z"/></svg>';
+  const SVG_S = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M7.24 8.75c-.26-.48-.39-1.03-.39-1.67 0-.61.13-1.16.4-1.67.26-.5.63-.93 1.11-1.29.48-.35 1.05-.63 1.7-.83.66-.19 1.39-.29 2.18-.29.81 0 1.54.11 2.21.34.66.22 1.23.54 1.69.94.47.4.83.88 1.08 1.43.25.55.38 1.15.38 1.81h-3.01c0-.31-.05-.59-.15-.85-.09-.27-.24-.49-.44-.68-.2-.19-.45-.33-.75-.44-.3-.1-.66-.16-1.06-.16-.39 0-.74.04-1.03.13-.29.09-.53.21-.72.36-.19.16-.34.34-.44.55-.1.21-.15.43-.15.66 0 .48.25.88.74 1.21.38.25.77.48 1.41.7H7.39c-.05-.08-.11-.17-.15-.25zM21 12v-2H3v2h9.62c.18.07.4.14.55.2.37.17.66.34.87.51.21.17.35.36.43.57.07.2.11.43.11.69 0 .23-.05.45-.14.66-.09.2-.23.38-.42.53-.19.15-.42.26-.71.35-.29.08-.63.13-1.01.13-.43 0-.83-.04-1.18-.13s-.66-.23-.91-.42c-.25-.19-.45-.44-.59-.75-.14-.31-.25-.76-.25-1.21H6.4c0 .55.08 1.13.24 1.58.16.45.37.85.65 1.21.28.35.6.66.98.92.37.26.78.48 1.22.65.44.17.9.3 1.38.39.48.08.96.13 1.44.13.8 0 1.53-.09 2.18-.28s1.21-.45 1.67-.79c.46-.34.82-.77 1.07-1.27s.38-1.07.38-1.71c0-.6-.1-1.14-.31-1.61-.05-.11-.11-.23-.17-.33H21z"/></svg>';
+  const SVG_HL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 14l3 3v5h6v-5l3-3V9H6zm5-12h2v3h-2zM3.5 5.88l1.41-1.41 2.12 2.12L5.62 8z"/></svg>';
+  const SVG_AL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M15 15H3v2h12zm0-8H3v2h12zM3 13h18v-2H3zm0 8h18v-2H3zM3 3v2h18V3z"/></svg>';
+  const SVG_AC = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M7 15v2h10v-2H7zm-4 6h18v-2H3v2zm0-8h18v-2H3v2zm4-6v2h10V7H7zM3 3v2h18V3H3z"/></svg>';
+  const SVG_AR = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 21h18v-2H3v2zm6-4h12v-2H9v2zm-6-4h18v-2H3v2zm6-4h12V7H9v2zM3 3v2h18V3H3z"/></svg>';
+  const SVG_AJ = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/></svg>';
+  const SVG_SUP = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M22 7h-2V4h-2v3h-2v2h2v3h2V9h2zM5.88 20h2.66l3.4-5.42h.12L15.46 20h2.66l-4.65-7.27L17.81 6h-2.68l-3.07 4.99h-.12L8.85 6H6.19l4.32 6.73z"/></svg>';
+  const SVG_SUB = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M22 18h-2v-3h-2v3h-2v2h2v3h2v-3h2zM5.88 18h2.66l3.4-5.42h.12l3.4 5.42h2.66l-4.65-7.27L17.81 4h-2.68l-3.07 4.99h-.12L8.85 4H6.19l4.32 6.73z"/></svg>';
+  const SVG_NORM = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M5 4v3h5.5v12h3V7H19V4z"/></svg>';
 
-  // Alineación del texto
-  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} }, 'Alineación texto'));
-  const alignRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'4px' } });
-  for(const [val, sym, title] of [['left','⫷','Izquierda'],['center','═','Centro'],['right','⫸','Derecha'],['justify','▤','Justificado']]){
-    const isActive = (conf.textAlign || 'left') === val;
-    alignRow.appendChild(el('button', {
-      class:`btn btn-sm ${isActive ? 'btn-primary' : 'btn-secondary'}`,
-      title, style:{ padding:'6px 4px' },
-      onclick: () => { conf.textAlign = val; render(); }
-    }, sym));
-  }
-  wrap.appendChild(alignRow);
+  // Sección Formato
+  wrap.appendChild(el('div', { class:'word-section' },
+    el('div', { class:'word-section-title' }, 'Formato'),
+    (() => {
+      const row = el('div', { class:'word-toolbar' });
+      const fmt = (key, svg, title) => {
+        const active = !!conf[key];
+        row.appendChild(el('button', {
+          class:`word-btn ${active ? 'active' : ''}`,
+          title,
+          onclick: () => { conf[key] = !active; render(); }
+        }, el('span', { html: svg })));
+      };
+      fmt('bold',      SVG_B,  'Negrita (Ctrl+B)');
+      fmt('italic',    SVG_I,  'Cursiva (Ctrl+I)');
+      fmt('underline', SVG_U,  'Subrayado (Ctrl+U)');
+      fmt('strike',    SVG_S,  'Tachado');
+      fmt('highlight', SVG_HL, 'Resaltar fondo ámbar');
+      return row;
+    })()
+  ));
 
-  // Sub/super-script
-  wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} }, 'Posición vertical'));
-  const vposRow = el('div', { style:{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'4px' } });
-  for(const [val, sym, title] of [['normal','—','Normal'],['super','x²','Superíndice'],['sub','x₂','Subíndice']]){
-    const isActive = (conf.vAlign || 'normal') === val;
-    vposRow.appendChild(el('button', {
-      class:`btn btn-sm ${isActive ? 'btn-primary' : 'btn-secondary'}`,
-      title, style:{ padding:'6px 4px' },
-      onclick: () => { conf.vAlign = val; render(); }
-    }, sym));
-  }
-  wrap.appendChild(vposRow);
+  // Sección Alineación
+  wrap.appendChild(el('div', { class:'word-section' },
+    el('div', { class:'word-section-title' }, 'Alineación'),
+    (() => {
+      const row = el('div', { class:'word-toolbar' });
+      for(const [val, svg, title] of [
+        ['left',    SVG_AL, 'Izquierda'],
+        ['center',  SVG_AC, 'Centro'],
+        ['right',   SVG_AR, 'Derecha'],
+        ['justify', SVG_AJ, 'Justificado']
+      ]){
+        const isActive = (conf.textAlign || 'left') === val;
+        row.appendChild(el('button', {
+          class:`word-btn ${isActive ? 'active' : ''}`,
+          title,
+          onclick: () => { conf.textAlign = val; render(); }
+        }, el('span', { html: svg })));
+      }
+      return row;
+    })()
+  ));
+
+  // Sección Posición vertical
+  wrap.appendChild(el('div', { class:'word-section' },
+    el('div', { class:'word-section-title' }, 'Posición vertical'),
+    (() => {
+      const row = el('div', { class:'word-toolbar' });
+      for(const [val, svg, title] of [
+        ['normal', SVG_NORM, 'Normal'],
+        ['super',  SVG_SUP,  'Superíndice (x²)'],
+        ['sub',    SVG_SUB,  'Subíndice (x₂)']
+      ]){
+        const isActive = (conf.vAlign || 'normal') === val;
+        row.appendChild(el('button', {
+          class:`word-btn ${isActive ? 'active' : ''}`,
+          title,
+          onclick: () => { conf.vAlign = val; render(); }
+        }, el('span', { html: svg })));
+      }
+      return row;
+    })()
+  ));
 
   // Espaciado entre líneas
   wrap.appendChild(el('label', { class:'edit-label', style:{marginTop:'10px'} },
@@ -1979,10 +2032,17 @@ function doPrint(){
   const original = document.querySelector('.canvas-paper');
   if(!original) return;
 
+  // Tamaño REAL del papel en milímetros (sin aplicar zoom de pantalla)
+  const { mmW, mmH } = currentPaperSize();
+  // 1mm = 3.7795275591 px exactos (96 DPI estándar para impresión)
+  const pxW = mmW * 3.7795275591;
+  const pxH = mmH * 3.7795275591;
+
   // Construir wrapper de impresión fuera de cualquier scroll/transform parent
   const wrap = document.createElement('div');
   wrap.id = '__pwrap';
   wrap.className = 'print-area';
+  wrap.style.cssText = `position:absolute; top:0; left:0; margin:0; padding:0;`;
 
   const copies = Math.max(1, Math.min(99, _state.copies || 1));
   for(let i = 0; i < copies; i++){
@@ -1994,6 +2054,21 @@ function doPrint(){
       n.removeAttribute('data-pos');
     });
     clone.classList.remove('has-grid');
+    // Forzar tamaño real del papel sin zoom
+    clone.style.cssText = `
+      width: ${pxW}px !important;
+      height: ${pxH}px !important;
+      max-width: ${pxW}px !important;
+      max-height: ${pxH}px !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      transform: none !important;
+      box-shadow: none !important;
+      border: 0 !important;
+      background: #fff !important;
+      background-image: none !important;
+      page-break-inside: avoid;
+    `;
     if(i < copies - 1) clone.classList.add('page-break');
     wrap.appendChild(clone);
   }
@@ -2005,54 +2080,20 @@ function doPrint(){
   }, 80);
 }
 
-function openBatchPrint(){
-  if(Object.keys(_state.fieldLayout).length === 0){ toast('Configura una plantilla antes', 'warn'); return; }
-  if(_state.records.length === 0){ toast('Sin registros en el evento', 'warn'); return; }
-
-  const body = el('div', {});
-  body.appendChild(el('p', {}, `Vas a imprimir ${_state.records.length} pases con la plantilla actual.`));
-  body.appendChild(el('div', { class:'cell-mute', style:{fontSize:'12px', marginTop:'8px'} },
-    '⚠ Las empresas bloqueadas se saltarán automáticamente.'));
-
-  const footer = el('div', { class:'modal-foot' },
-    el('button', { class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
-    el('button', { class:'btn btn-primary', onclick: () => batchPrint(_state.records) }, '🖨 Iniciar')
-  );
-  openModal({ title:`Imprimir batch (${_state.records.length})`, body });
-  setTimeout(() => body.parentElement.appendChild(footer), 60);
-}
-
-function batchPrint(records){
-  closeModal();
-  let saltados = 0, impresos = 0;
-  const wrap = el('div', { class:'print-area', id:'__pbatch' });
-  const orig = _state.selectedRecordId;
-
-  for(let i = 0; i < records.length; i++){
-    const r = records[i];
-    if(r._empresaNivel === 'bloqueada'){ saltados++; continue; }
-    _state.selectedRecordId = r.id;
-    impresos++;
-    const tmp = renderCanvas();
-    const paper = tmp.querySelector('.canvas-paper');
-    if(paper){
-      if(i < records.length - 1) paper.classList.add('page-break');
-      wrap.appendChild(paper.cloneNode(true));
-    }
-  }
-
-  _state.selectedRecordId = orig;
-  document.body.appendChild(wrap);
-  const active = document.querySelector('.print-shell .canvas-paper');
-  if(active) active.classList.remove('print-area');
-  setTimeout(() => {
-    window.print();
-    setTimeout(() => {
-      wrap.remove();
-      if(active) active.classList.add('print-area');
-      toast(`Batch: ${impresos} impresos, ${saltados} saltados`, 'ok', 4000);
-    }, 200);
-  }, 100);
+// Devuelve el tamaño en mm del papel actual según _state.paper
+function currentPaperSize(){
+  const sizes = {
+    'a3':       { mmW: 297, mmH: 420 },
+    'a4':       { mmW: 210, mmH: 297 },
+    'a5':       { mmW: 148, mmH: 210 },
+    'a6':       { mmW: 105, mmH: 148 },
+    'etiqueta': { mmW: 100, mmH: 60 },
+    'sticker':  { mmW: 100, mmH: 60 },
+    'troquel':  { mmW: 100, mmH: 65 },
+    'troquel-pequeno': { mmW: 70, mmH: 45 },
+    'troquel-mediano': { mmW: 100, mmH: 65 }
+  };
+  return sizes[_state.paper] || sizes['a4'];
 }
 
 function recordPrintStat(templateId){

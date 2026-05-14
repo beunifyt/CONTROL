@@ -2,7 +2,7 @@
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, todayKey, chipTel } from '../utils.js';
 import { getDefaultEventoId } from '../utils.js';
 import { listLive, list, update, remove, createIngreso, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
-import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons } from './shared.js';
+import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons, printRecord } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 import { attachAutocomplete, applyDataToForm } from '../autocomplete.js';
@@ -171,6 +171,8 @@ function rowActions(i, p){
     }
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => openForm(i), title:'Editar' },
       el('span', { html: icon('edit') })));
+    wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => printRecord('ingresos', i), title:'Imprimir pase' },
+      el('span', { html: icon('print') })));
   }
   if(canDelete(p)){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => deleteItem(i), title:'Eliminar' },
