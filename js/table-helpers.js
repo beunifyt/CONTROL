@@ -24,7 +24,7 @@ import { logger } from './logger.js';
  * @returns {HTMLElement}
  */
 export function smartTable(opts){
-  const {module, columns, rows, detailRenderer, rowActions} = opts;
+  const {module, columns, rows, detailRenderer, rowActions, inlineEdit} = opts;
   const profile = getCurrentProfile();
   const uid = profile?.id;
 
@@ -42,6 +42,10 @@ export function smartTable(opts){
   }});
   configBar.appendChild(el('span', {class:'cell-mute'}, `${rows.length} resultados`));
   configBar.appendChild(el('div', {class:'flex-1'}));
+  if(inlineEdit){
+    configBar.appendChild(el('span', { class:'inline-edit-hint' },
+      '✎ Haz clic en los campos vacíos (—) para rellenarlos sin abrir el registro'));
+  }
   configBar.appendChild(el('button', {
     class:'btn btn-ghost btn-sm',
     onclick: () => openColumnConfig(module, columns, activeColumns, (newConfig) => {
@@ -92,6 +96,7 @@ export function smartTable(opts){
       style: detailRenderer ? {cursor:'pointer'} : {},
       onclick: detailRenderer ? (e) => {
         if(e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.tagName === 'A') return;
+        if(e.target.closest('.inline-edit-cell')) return; // no abrir detalle si edito inline
         toggleDetail(tr, row, detailRenderer, activeColumns.length + (rowActions ? 1 : 0));
       } : null
     });
@@ -99,9 +104,22 @@ export function smartTable(opts){
       const col = columns.find(c => c.id === colId);
       if(!col) continue;
       const td = el('td');
-      const content = col.render ? col.render(row) : (row[col.id] != null ? String(row[col.id]) : '—');
-      if(content instanceof Node) td.appendChild(content);
-      else td.appendChild(document.createTextNode(content));
+
+      // ── Edición inline de campos vacíos ──
+      // Solo si el módulo lo activa, el campo es editable inline, y está vacío
+      const rawValue = row[col.id];
+      const isEmpty = rawValue == null || rawValue === '' || rawValue === undefined;
+
+      if(inlineEdit && col.inlineEditable !== false && isEmpty){
+        td.classList.add('inline-edit-cell');
+        td.appendChild(buildInlineEditCell(module, row, col, () => {
+          wrap.replaceWith(smartTable({...opts}));
+        }));
+      } else {
+        const content = col.render ? col.render(row) : (row[col.id] != null ? String(row[col.id]) : '—');
+        if(content instanceof Node) td.appendChild(content);
+        else td.appendChild(document.createTextNode(content));
+      }
       tr.appendChild(td);
     }
     if(rowActions){
@@ -115,6 +133,85 @@ export function smartTable(opts){
   tbl.appendChild(tbody);
   wrap.appendChild(tbl);
   return wrap;
+}
+
+// ─── Celda de edición inline ──────────────────────────────────
+// Muestra "—" como botón; al hacer clic se convierte en input;
+// Enter guarda, Escape cancela, blur guarda.
+function buildInlineEditCell(module, row, col, onSaved){
+  const span = el('span', {
+    class:'inline-edit-empty',
+    title:'Clic para rellenar'
+  }, '—');
+
+  span.onclick = (e) => {
+    e.stopPropagation();
+    const cell = span.parentElement;
+    cell.innerHTML = '';
+
+    // Tipo de input según el campo
+    let input;
+    const fieldType = col.inlineType || 'text';
+    if(fieldType === 'select' && Array.isArray(col.inlineOptions)){
+      input = el('select', { class:'inline-edit-input' });
+      input.appendChild(el('option', { value:'' }, '—'));
+      for(const opt of col.inlineOptions){
+        input.appendChild(el('option', { value: opt.value }, opt.label));
+      }
+    } else {
+      input = el('input', {
+        type: fieldType === 'number' ? 'number' : fieldType === 'time' ? 'time' : 'text',
+        class:'inline-edit-input',
+        placeholder: col.label
+      });
+    }
+
+    let saved = false;
+    const save = async () => {
+      if(saved) return;
+      saved = true;
+      const val = input.value.trim();
+      if(!val){
+        // vacío → restaurar el "—"
+        cell.innerHTML = '';
+        cell.appendChild(buildInlineEditCell(module, row, col, onSaved));
+        return;
+      }
+      try{
+        const { update } = await import('./db.js');
+        const payload = {};
+        payload[col.id] = col.inlineType === 'number' ? Number(val) : val;
+        await update(module, row.id, payload);
+        const { toast } = await import('./utils.js');
+        toast(`${col.label} guardado`, 'ok', 1500);
+        if(onSaved) onSaved();
+      } catch(err){
+        const { toast } = await import('./utils.js');
+        toast('Error al guardar: ' + (err.message || ''), 'err');
+        cell.innerHTML = '';
+        cell.appendChild(buildInlineEditCell(module, row, col, onSaved));
+      }
+    };
+    const cancel = () => {
+      if(saved) return;
+      saved = true;
+      cell.innerHTML = '';
+      cell.appendChild(buildInlineEditCell(module, row, col, onSaved));
+    };
+
+    input.onkeydown = (ev) => {
+      ev.stopPropagation();
+      if(ev.key === 'Enter'){ ev.preventDefault(); save(); }
+      if(ev.key === 'Escape'){ ev.preventDefault(); cancel(); }
+    };
+    input.onblur = save;
+    input.onclick = ev => ev.stopPropagation();
+
+    cell.appendChild(input);
+    input.focus();
+  };
+
+  return span;
 }
 
 function toggleDetail(tr, row, renderer, colspan){

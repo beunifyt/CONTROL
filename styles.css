@@ -1642,3 +1642,72 @@ body[data-theme="contrast"] .table td{ border-width:1.5px !important; }
 /* No requiere CSS visible: el iframe de impresión lleva su propio
    <style> embebido. Este bloque queda como referencia. */
 
+
+/* ═══════════════════════════════════════════════
+   Edición inline en tablas (campos vacíos)
+═══════════════════════════════════════════════ */
+.inline-edit-hint{
+  font-size:11px; color:var(--primary);
+  background:#EFF6FF; padding:3px 10px; border-radius:10px;
+}
+.inline-edit-empty{
+  display:inline-block; min-width:32px;
+  color:#CBD5E1; cursor:pointer;
+  border:1px dashed transparent; border-radius:4px;
+  padding:1px 6px; transition: all 0.12s;
+  text-align:center;
+}
+.inline-edit-empty:hover{
+  border-color:var(--primary); color:var(--primary);
+  background:#EFF6FF;
+}
+.inline-edit-cell{ position:relative; }
+.inline-edit-input{
+  width:100%; min-width:90px; max-width:160px;
+  padding:4px 8px; border:1.5px solid var(--primary); border-radius:6px;
+  font-size:13px; font-family:inherit; outline:none;
+  background:#fff;
+}
+
+/* ═══════════════════════════════════════════════
+   Panel "Campos del formulario" (field-config.js)
+═══════════════════════════════════════════════ */
+.fc-body{ min-width:420px; }
+.fc-list{
+  display:flex; flex-direction:column; gap:4px;
+  margin-top:12px; max-height:440px; overflow-y:auto;
+}
+.fc-item{
+  display:flex; align-items:center; gap:10px;
+  padding:9px 12px; border-radius:8px;
+  border:1.5px solid var(--border); background:#fff;
+  cursor:grab; transition: all 0.12s;
+}
+.fc-item:active{ cursor:grabbing; }
+.fc-item.drag-over{ border-color:var(--primary); background:#EFF6FF; }
+.fc-item.hidden{ opacity:0.55; background:var(--surface-2); }
+.fc-item.required{ border-color:#BFDBFE; background:#F0F7FF; }
+.fc-grip{
+  color:var(--text-mute); font-size:14px; cursor:grab;
+  user-select:none; flex-shrink:0;
+}
+.fc-label{
+  flex:1; font-size:13px; font-weight:500;
+}
+.fc-req{
+  font-size:10px; font-weight:600; color:#2563EB;
+  text-transform:uppercase; letter-spacing:0.03em;
+}
+.fc-badge{
+  font-size:11px; padding:3px 10px; border-radius:10px;
+}
+.fc-badge-req{ background:#DBEAFE; color:#1D4ED8; }
+.fc-toggle{
+  font-size:11px; font-weight:600;
+  padding:4px 12px; border-radius:10px; cursor:pointer;
+  border:1.5px solid var(--border); background:#fff;
+  transition: all 0.12s;
+}
+.fc-toggle.on{ border-color:#22C55E; color:#15803D; background:#F0FDF4; }
+.fc-toggle.off{ border-color:var(--border); color:var(--text-mute); }
+.fc-toggle:hover{ transform:translateY(-1px); }

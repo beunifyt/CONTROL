@@ -73,6 +73,11 @@ export const Prefs = {
   getColumns: (uid, modulo) => getPref(uid, `cols.${modulo}`, null),
   setColumns: (uid, modulo, cols) => setPref(uid, `cols.${modulo}`, cols),
 
+  // Campos del formulario de un módulo (cuáles + orden)
+  // Devuelve { hidden:[ids ocultos], order:[ids en orden] } o null
+  getFormFields: (uid, modulo) => getPref(uid, `formfields.${modulo}`, null),
+  setFormFields: (uid, modulo, cfg) => setPref(uid, `formfields.${modulo}`, cfg),
+
   // Filtros guardados
   getFilters: (uid, modulo) => getPref(uid, `filters.${modulo}`, []),
   setFilters: (uid, modulo, filters) => setPref(uid, `filters.${modulo}`, filters),

@@ -11,6 +11,7 @@ import { getHistory, logIncidencia, listIncidencias } from '../audit.js';
 import { logger } from '../logger.js';
 import { smartTable, savedFiltersBar } from '../table-helpers.js';
 import { openContactDriverModal } from '../contact-driver.js';
+import { getOrderedFields, openFieldConfig } from '../field-config.js';
 
 let _container = null;
 let _items = [];
@@ -30,6 +31,40 @@ const ESTADOS = [
   { value:'rampa_parking', label:'Rampa/Parking' },
   { value:'dentro_fira', label:'Dentro Fira' },
   { value:'salida', label:'Salida' }
+];
+
+// Todos los campos del formulario de referencia.
+// 'required' = no se puede ocultar desde el panel ⚙ Campos.
+const ALL_FORM_FIELDS = [
+  { id:'matricula',    label:'Matrícula',        required:true },
+  { id:'eventoId',     label:'Evento',           required:true },
+  { id:'remolque',     label:'Remolque' },
+  { id:'tipoVehiculo', label:'Tipo de vehículo' },
+  { id:'tacografo',    label:'Tacógrafo' },
+  { id:'conductor',    label:'Conductor (nombre)' },
+  { id:'apellido',     label:'Apellido' },
+  { id:'telefono',     label:'Teléfono' },
+  { id:'email',        label:'Email' },
+  { id:'pasaporte',    label:'Pasaporte / DNI' },
+  { id:'pais',         label:'País' },
+  { id:'fNacimiento',  label:'Fecha de nacimiento' },
+  { id:'fExpiracion',  label:'Fecha de expiración' },
+  { id:'conductorLang',label:'Idioma del conductor' },
+  { id:'empresa',      label:'Empresa' },
+  { id:'referencia',   label:'Referencia / Booking' },
+  { id:'expositor',    label:'Expositor' },
+  { id:'montador',     label:'Montador' },
+  { id:'llamador',     label:'Llamador' },
+  { id:'posicion',     label:'Nº Posición' },
+  { id:'hall',         label:'Hall' },
+  { id:'puertaHall',   label:'Puerta Hall' },
+  { id:'stand',        label:'Stand' },
+  { id:'acceso',       label:'Acceso' },
+  { id:'descarga',     label:'Descarga' },
+  { id:'estado',       label:'Estado' },
+  { id:'hora',         label:'Hora' },
+  { id:'comentario',   label:'Comentario' },
+  { id:'notas',        label:'Notas' }
 ];
 
 export async function init(container){
@@ -85,6 +120,14 @@ function render(){
       title:'Eliminar referencias filtrando por evento y/o fecha',
       onclick: () => openBulkDelete()
     }, el('span', { html: icon('trash') }), 'Eliminar en lote'));
+  }
+  // Botón configurar campos del formulario
+  if(canEdit(p)){
+    actions.push(el('button', {
+      class:'btn btn-secondary btn-sm',
+      title:'Elegir y reordenar qué campos aparecen en el formulario',
+      onclick: () => openFieldConfig('referencias', ALL_FORM_FIELDS, () => render())
+    }, el('span', { html: '⚙' }), 'Campos'));
   }
 
   _container.appendChild(pageHeader({
@@ -147,10 +190,10 @@ function renderTable(){
   }
 
   const columns = [
-    { id:'posicion',  label:'Nº Posición', render: r => el('span', { class:`cell-pos ${r.posicionManual ? 'manual' : ''}`, title: r.posicionManual ? 'Posición manual' : 'Posición automática' }, String(r.posicion || '—')) },
+    { id:'posicion',  label:'Nº Posición', inlineType:'number', render: r => el('span', { class:`cell-pos ${r.posicionManual ? 'manual' : ''}`, title: r.posicionManual ? 'Posición manual' : 'Posición automática' }, String(r.posicion || '—')) },
     { id:'referencia',label:'Referencia', render: r => { const ev = _eventos.find(e => e.id === r.eventoId); return el('span', { class:'cell-mute' }, r.referencia || ev?.nombre?.slice(0,8) || '—'); } },
     { id:'llamador',  label:'Llamador',   render: r => r.llamador || '—', default:false },
-    { id:'matricula', label:'Matrícula',  render: r => el('span', { class:'cell-plate' }, r.matricula || '—') },
+    { id:'matricula', label:'Matrícula',  inlineEditable:false, render: r => el('span', { class:'cell-plate' }, r.matricula || '—') },
     { id:'remolque',  label:'Remolque',   render: r => r.remolque || '—', default:false },
     { id:'conductor', label:'Conductor',  render: r => r.conductor || '—' },
     { id:'apellido',  label:'Apellido',   render: r => r.apellido || '—', default:false },
@@ -162,17 +205,22 @@ function renderTable(){
     { id:'expositor', label:'Expositor',  render: r => r.expositor || '—', default:false },
     { id:'montador',  label:'Montador',   render: r => r.montador || '—', default:false },
     { id:'acceso',    label:'Acceso',     render: r => r.acceso || '—', default:false },
-    { id:'descarga',  label:'Descarga',   render: r => r.descarga || '—', default:false },
-    { id:'tipoVehiculo', label:'Tipo Vehículo', render: r => r.tipoVehiculo || '—', default:false },
+    { id:'descarga',  label:'Descarga',   inlineType:'select', inlineOptions:[
+        { value:'carga', label:'Carga' }, { value:'descarga', label:'Descarga' }, { value:'ambas', label:'Carga y descarga' }
+      ], render: r => r.descarga || '—', default:false },
+    { id:'tipoVehiculo', label:'Tipo Vehículo', inlineType:'select', inlineOptions:[
+        { value:'camion', label:'Camión' }, { value:'trailer', label:'Trailer' },
+        { value:'furgoneta', label:'Furgoneta' }, { value:'semirremolque', label:'Semirremolque' }, { value:'otro', label:'Otro' }
+      ], render: r => r.tipoVehiculo || '—', default:false },
     { id:'pais',      label:'País',       render: r => r.pais || '—', default:false },
     { id:'email',     label:'Email',      render: r => r.email ? chipEmail(r.email) : '—', default:false },
     { id:'telefono',  label:'Teléfono',   render: r => r.telefono ? chipTel(r.telefono) : '—' },
-    { id:'fNacimiento', label:'F. Nacimiento', render: r => r.fNacimiento || '—', default:false },
-    { id:'fExpiracion', label:'F. Expiración', render: r => r.fExpiracion || '—', default:false },
-    { id:'estado',    label:'Estado',     render: r => statusBadge(r.estado || 'prerregistrado') },
-    { id:'horaEntrada', label:'Entrada',  render: r => el('span', { class:'cell-mute' }, r.horaEntrada || '—') },
-    { id:'horaSalida',  label:'Salida',   render: r => el('span', { class:'cell-mute' }, r.horaSalida || '—') },
-    { id:'hora',      label:'Hora',       render: r => el('span', { class:'cell-mute' }, r.hora || '—'), default:false },
+    { id:'fNacimiento', label:'F. Nacimiento', inlineType:'date', render: r => r.fNacimiento || '—', default:false },
+    { id:'fExpiracion', label:'F. Expiración', inlineType:'date', render: r => r.fExpiracion || '—', default:false },
+    { id:'estado',    label:'Estado',     inlineEditable:false, render: r => statusBadge(r.estado || 'prerregistrado') },
+    { id:'horaEntrada', label:'Entrada',  inlineType:'time', render: r => el('span', { class:'cell-mute' }, r.horaEntrada || '—') },
+    { id:'horaSalida',  label:'Salida',   inlineType:'time', render: r => el('span', { class:'cell-mute' }, r.horaSalida || '—') },
+    { id:'hora',      label:'Hora',       inlineType:'time', render: r => el('span', { class:'cell-mute' }, r.hora || '—'), default:false },
     { id:'comentario',label:'Comentario', render: r => el('span', { class:'cell-mute' }, (r.comentario || '').slice(0,30) || '—'), default:false },
     { id:'notas',     label:'Notas',      render: r => el('span', { class:'cell-mute' }, (r.notas || '').slice(0,30) || '—'), default:false }
   ];
@@ -180,6 +228,7 @@ function renderTable(){
   t.appendChild(smartTable({
     module:'referencias',
     columns, rows: filtered,
+    inlineEdit: canEdit(p),
     detailRenderer: r => {
       const ev = _eventos.find(e => e.id === r.eventoId);
       const dl = el('div', { style:{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'8px 24px', fontSize:'13px'} });
@@ -455,80 +504,70 @@ function openForm(item){
 
   const grid = el('div', { class:'form-grid' });
 
-  // ── Datos del vehículo ──
-  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Vehículo'));
-  grid.appendChild(formField({ label:'Matrícula', name:'matricula', value:data.matricula, required:true, placeholder:'Ej: 1234ABC' }));
-  grid.appendChild(formField({ label:'Remolque', name:'remolque', value:data.remolque, placeholder:'(opcional)' }));
-  grid.appendChild(formField({ label:'Tipo vehículo', name:'tipoVehiculo', value:data.tipoVehiculo, options:[
-    { value:'camion', label:'Camión' },
-    { value:'trailer', label:'Trailer' },
-    { value:'furgoneta', label:'Furgoneta' },
-    { value:'semirremolque', label:'Semirremolque' },
-    { value:'otro', label:'Otro' }
-  ]}));
-  grid.appendChild(formField({ label:'Tacógrafo', name:'tacografo', value:data.tacografo, options:[
-    { value:'', label:'—' },
-    { value:'digital', label:'Digital' },
-    { value:'analogico', label:'Analógico' }
-  ]}));
+  // Cada campo del formulario, como función que devuelve su nodo.
+  // El orden y visibilidad los decide getOrderedFields() según la
+  // configuración del usuario en el panel ⚙ Campos.
+  const FIELD_BUILDERS = {
+    matricula: () => formField({ label:'Matrícula', name:'matricula', value:data.matricula, required:true, placeholder:'Ej: 1234ABC' }),
+    eventoId: () => formField({ label:'Evento', name:'eventoId', value:data.eventoId, options:eventoOpts, required:true, full:true }),
+    remolque: () => formField({ label:'Remolque', name:'remolque', value:data.remolque, placeholder:'(opcional)' }),
+    tipoVehiculo: () => formField({ label:'Tipo de vehículo', name:'tipoVehiculo', value:data.tipoVehiculo, options:[
+      { value:'camion', label:'Camión' }, { value:'trailer', label:'Trailer' },
+      { value:'furgoneta', label:'Furgoneta' }, { value:'semirremolque', label:'Semirremolque' },
+      { value:'otro', label:'Otro' }
+    ]}),
+    tacografo: () => formField({ label:'Tacógrafo', name:'tacografo', value:data.tacografo, options:[
+      { value:'', label:'—' }, { value:'digital', label:'Digital' }, { value:'analogico', label:'Analógico' }
+    ]}),
+    conductor: () => formField({ label:'Conductor (nombre)', name:'conductor', value:data.conductor }),
+    apellido: () => formField({ label:'Apellido', name:'apellido', value:data.apellido }),
+    telefono: () => formField({ label:'Teléfono', name:'telefono', value:data.telefono }),
+    email: () => formField({ label:'Email', name:'email', type:'email', value:data.email }),
+    pasaporte: () => formField({ label:'Pasaporte / DNI', name:'pasaporte', value:data.pasaporte }),
+    pais: () => formField({ label:'País', name:'pais', value:data.pais, placeholder:'España, Polonia…' }),
+    fNacimiento: () => formField({ label:'F. Nacimiento', name:'fNacimiento', type:'date', value:data.fNacimiento }),
+    fExpiracion: () => formField({ label:'F. Expiración', name:'fExpiracion', type:'date', value:data.fExpiracion }),
+    conductorLang: () => formField({ label:'Idioma del conductor', name:'conductorLang', value:data.conductorLang || 'es', options:[
+      { value:'es', label:'Español' }, { value:'en', label:'English' },
+      { value:'fr', label:'Français' }, { value:'de', label:'Deutsch' },
+      { value:'it', label:'Italiano' }, { value:'pt', label:'Português' },
+      { value:'pl', label:'Polski' }, { value:'ro', label:'Română' },
+      { value:'nl', label:'Nederlands' }, { value:'bg', label:'Български' }
+    ]}),
+    empresa: () => formField({ label:'Empresa', name:'empresa', value:data.empresa }),
+    referencia: () => formField({ label:'Referencia / Booking', name:'referencia', value:data.referencia, placeholder:'Ej: MWC-2026-001' }),
+    expositor: () => formField({ label:'Expositor', name:'expositor', value:data.expositor }),
+    montador: () => formField({ label:'Montador', name:'montador', value:data.montador }),
+    llamador: () => formField({ label:'Llamador', name:'llamador', value:data.llamador }),
+    posicion: () => formField({
+      label: isEdit ? 'Nº Posición' : 'Nº Posición (vacío = automática)',
+      name:'posicion', type:'number', value:data.posicion || '',
+      hint: isEdit ? 'Editar manualmente la posición' : 'Si dejas vacío, el sistema asigna la siguiente disponible'
+    }),
+    hall: () => formField({ label:'Hall', name:'hall', value:data.hall }),
+    puertaHall: () => formField({ label:'Puerta Hall', name:'puertaHall', value:data.puertaHall }),
+    stand: () => formField({ label:'Stand', name:'stand', value:data.stand }),
+    acceso: () => formField({ label:'Acceso', name:'acceso', value:data.acceso }),
+    descarga: () => formField({ label:'Descarga', name:'descarga', value:data.descarga, options:[
+      { value:'', label:'—' }, { value:'carga', label:'Carga' },
+      { value:'descarga', label:'Descarga' }, { value:'ambas', label:'Carga y descarga' }
+    ]}),
+    estado: () => formField({ label:'Estado', name:'estado', value:data.estado, options:[
+      { value:'prerregistrado', label:'Prerregistrado' }, { value:'en_camino', label:'En camino' },
+      { value:'rampa_parking', label:'Rampa/Parking' }, { value:'dentro_fira', label:'Dentro Fira' },
+      { value:'salida', label:'Salida' }
+    ]}),
+    hora: () => formField({ label:'Hora', name:'hora', type:'time', value:data.hora }),
+    comentario: () => formField({ label:'Comentario', name:'comentario', type:'textarea', value:data.comentario, full:true }),
+    notas: () => formField({ label:'Notas', name:'notas', type:'textarea', value:data.notas, full:true })
+  };
 
-  // ── Datos del conductor ──
-  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Conductor'));
-  grid.appendChild(formField({ label:'Conductor (nombre)', name:'conductor', value:data.conductor }));
-  grid.appendChild(formField({ label:'Apellido', name:'apellido', value:data.apellido }));
-  grid.appendChild(formField({ label:'Teléfono', name:'telefono', value:data.telefono }));
-  grid.appendChild(formField({ label:'Email', name:'email', type:'email', value:data.email }));
-  grid.appendChild(formField({ label:'Pasaporte / DNI', name:'pasaporte', value:data.pasaporte }));
-  grid.appendChild(formField({ label:'País', name:'pais', value:data.pais, placeholder:'España, Polonia…' }));
-  grid.appendChild(formField({ label:'F. Nacimiento', name:'fNacimiento', type:'date', value:data.fNacimiento }));
-  grid.appendChild(formField({ label:'F. Expiración (carnet/doc)', name:'fExpiracion', type:'date', value:data.fExpiracion }));
-  grid.appendChild(formField({ label:'Idioma del conductor', name:'conductorLang', value:data.conductorLang || 'es', options:[
-    { value:'es', label:'Español' }, { value:'en', label:'English' },
-    { value:'fr', label:'Français' }, { value:'de', label:'Deutsch' },
-    { value:'it', label:'Italiano' }, { value:'pt', label:'Português' },
-    { value:'pl', label:'Polski' }, { value:'ro', label:'Română' },
-    { value:'nl', label:'Nederlands' }, { value:'bg', label:'Български' }
-  ]}));
-
-  // ── Empresa y evento ──
-  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Empresa y evento'));
-  grid.appendChild(formField({ label:'Empresa', name:'empresa', value:data.empresa }));
-  grid.appendChild(formField({ label:'Referencia / Booking', name:'referencia', value:data.referencia, placeholder:'Ej: MWC-2026-001' }));
-  grid.appendChild(formField({ label:'Evento', name:'eventoId', value:data.eventoId, options:eventoOpts, required:true, full:true }));
-  grid.appendChild(formField({ label:'Expositor', name:'expositor', value:data.expositor }));
-  grid.appendChild(formField({ label:'Montador', name:'montador', value:data.montador }));
-  grid.appendChild(formField({ label:'Llamador', name:'llamador', value:data.llamador }));
-
-  // ── Ubicación y acceso ──
-  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Ubicación y acceso'));
-  grid.appendChild(formField({
-    label: isEdit ? 'Nº Posición' : 'Nº Posición (vacío = automática)',
-    name:'posicion', type:'number', value:data.posicion || '',
-    hint: isEdit ? 'Editar manualmente la posición' : 'Si dejas vacío, el sistema asigna la siguiente disponible'
-  }));
-  grid.appendChild(formField({ label:'Hall', name:'hall', value:data.hall }));
-  grid.appendChild(formField({ label:'Puerta Hall', name:'puertaHall', value:data.puertaHall }));
-  grid.appendChild(formField({ label:'Stand', name:'stand', value:data.stand }));
-  grid.appendChild(formField({ label:'Acceso', name:'acceso', value:data.acceso }));
-  grid.appendChild(formField({ label:'Descarga', name:'descarga', value:data.descarga, options:[
-    { value:'', label:'—' },
-    { value:'carga', label:'Carga' },
-    { value:'descarga', label:'Descarga' },
-    { value:'ambas', label:'Carga y descarga' }
-  ]}));
-
-  // ── Estado y notas ──
-  grid.appendChild(el('div', { class:'form-section-title field-full' }, 'Estado'));
-  grid.appendChild(formField({ label:'Estado', name:'estado', value:data.estado, options:[
-    { value:'prerregistrado', label:'Prerregistrado' },
-    { value:'en_camino', label:'En camino' },
-    { value:'rampa_parking', label:'Rampa/Parking' },
-    { value:'dentro_fira', label:'Dentro Fira' },
-    { value:'salida', label:'Salida' }
-  ]}));
-  grid.appendChild(formField({ label:'Hora', name:'hora', type:'time', value:data.hora }));
-  grid.appendChild(formField({ label:'Comentario', name:'comentario', type:'textarea', value:data.comentario, full:true }));
-  grid.appendChild(formField({ label:'Notas', name:'notas', type:'textarea', value:data.notas, full:true }));
+  // Pintar los campos en el orden / visibilidad que el usuario configuró
+  const orderedFields = getOrderedFields('referencias', ALL_FORM_FIELDS);
+  for(const f of orderedFields){
+    const builder = FIELD_BUILDERS[f.id];
+    if(builder) grid.appendChild(builder());
+  }
   form.appendChild(grid);
 
   const footer = el('div', { class:'modal-foot' },
