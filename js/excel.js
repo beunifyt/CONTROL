@@ -423,14 +423,17 @@ export async function importFromExcel(modulo, file, opts = {}){
           continue;
         }
 
-        // Crear según módulo
+        // Crear según módulo.
+        // En importación masiva NO se asigna posición automática:
+        // la posición se asigna cuando el vehículo llega físicamente.
+        // Si el Excel trae la columna "Posicion" rellena, esa sí se respeta.
         let createdDoc = null;
         if(modulo === 'referencias'){
           if(!payload.eventoId) throw new Error('Sin evento: rellena la columna "Evento" o selecciona un evento antes de importar');
-          createdDoc = await createReferencia(payload);
+          createdDoc = await createReferencia(payload, { skipAutoPosicion: true });
         } else if(modulo === 'ingresos'){
           if(!payload.eventoId) throw new Error('Sin evento: rellena la columna "Evento" o selecciona un evento antes de importar');
-          createdDoc = await createIngreso(payload);
+          createdDoc = await createIngreso(payload, { skipAutoPosicion: true });
         } else {
           createdDoc = await create(modulo, payload);
         }

@@ -359,7 +359,7 @@ export async function whoHasPosicion(coll, eventoId, posicion, options={}){
   return { id: docs[0].id, ...docs[0].data() };
 }
 
-export async function createReferencia(data){
+export async function createReferencia(data, opts = {}){
   if(!data.eventoId) throw new Error('eventoId requerido');
   let posicion = data.posicion ? Number(data.posicion) : null;
   let posicionManual = false;
@@ -368,6 +368,10 @@ export async function createReferencia(data){
     const taken = await isPosicionTaken('referencias', data.eventoId, posicion);
     if(taken) throw new Error(`La posición ${posicion} ya está ocupada en este evento`);
     posicionManual = true;
+  } else if(opts.skipAutoPosicion){
+    // Importación masiva desde Excel: la referencia se crea SIN posición.
+    // La posición se asignará cuando el vehículo llegue físicamente.
+    posicion = null;
   } else {
     posicion = await nextRefPosicion(data.eventoId);
   }
@@ -388,7 +392,7 @@ export async function createReferencia(data){
   return { id, ...data, posicion, posicionManual };
 }
 
-export async function createIngreso(data){
+export async function createIngreso(data, opts = {}){
   if(!data.eventoId) throw new Error('eventoId requerido');
   const dayKey = todayKey();
   let posicion = data.posicion ? Number(data.posicion) : null;
@@ -398,6 +402,9 @@ export async function createIngreso(data){
     const taken = await isPosicionTaken('ingresos', data.eventoId, posicion, { day: dayKey });
     if(taken) throw new Error(`La posición ${posicion} ya está ocupada hoy`);
     posicionManual = true;
+  } else if(opts.skipAutoPosicion){
+    // Importación masiva desde Excel: ingreso creado sin posición.
+    posicion = null;
   } else {
     posicion = await nextIngPosicion(data.eventoId);
   }
