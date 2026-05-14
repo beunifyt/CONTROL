@@ -1636,49 +1636,9 @@ body[data-theme="contrast"] .table td{ border-width:1.5px !important; }
 .form-section-title:first-child{ margin-top:0; }
 
 /* ═══════════════════════════════════════════════
-   Modal Imprimir pase (print-pass.js)
+   Impresión de pase (print-pass.js)
+   Impresión directa vía iframe — sin modal de preview
 ═══════════════════════════════════════════════ */
-.pp-modal-body{ min-width:480px; }
-.pp-loading{
-  padding:40px; text-align:center; color:var(--text-mute); font-size:14px;
-}
-.pp-error{ padding:24px; text-align:center; }
-.pp-error p{ margin:4px 0; }
+/* No requiere CSS visible: el iframe de impresión lleva su propio
+   <style> embebido. Este bloque queda como referencia. */
 
-.pp-no-template{
-  padding:32px 24px; text-align:center;
-}
-.pp-no-template-ico{ font-size:42px; margin-bottom:10px; opacity:0.4; }
-.pp-no-template h3{ font-size:16px; margin:0 0 8px; }
-.pp-no-template p{ margin:4px 0; font-size:13px; }
-
-.pp-info{
-  padding:8px 12px; background:var(--surface-2); border-radius:8px;
-  font-size:13px; margin-bottom:12px;
-}
-.pp-preview-wrap{
-  display:flex; justify-content:center;
-  background: repeating-linear-gradient(45deg, #F1F5F9, #F1F5F9 8px, #E2E8F0 8px, #E2E8F0 16px);
-  border:1px solid var(--border); border-radius:8px;
-  padding:10px; overflow:auto;
-}
-.pp-paper{
-  box-shadow:0 4px 16px rgba(0,0,0,0.18);
-}
-.pp-copies-row{
-  display:flex; align-items:center; gap:10px; margin-top:12px;
-}
-.pp-copies-row .edit-label{ margin:0; }
-
-/* Print: solo el pase, oculta todo lo demás */
-@media print {
-  body.pp-printing > *:not(#__pp_print){ display:none !important; }
-  #__pp_print{
-    position:absolute !important; top:0 !important; left:0 !important;
-  }
-  #__pp_print .pp-paper{
-    box-shadow:none !important; transform:none !important;
-    page-break-inside:avoid;
-  }
-  #__pp_print .pp-page-break{ page-break-after:always !important; }
-}

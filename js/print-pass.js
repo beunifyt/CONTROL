@@ -5,7 +5,7 @@
 // Agenda). NO navega a ningún sitio: el usuario imprime y se queda
 // donde estaba. No requiere permiso del módulo Impresión.
 // ═══════════════════════════════════════════════════════════════
-import { el, openModal, closeModal, toast } from './utils.js';
+import { toast } from './utils.js';
 import { list, listTemplates, loadDefaultTemplate } from './db.js';
 import { trIn } from './i18n.js';
 import { FIELDS } from './modules/impresion.js';
@@ -122,109 +122,111 @@ function paperSizeMM(paperSize){
   return sizes[paperSize] || sizes['A4'];
 }
 
-// ─── Render del pase (paper con campos posicionados) ─────────
-function renderPaper(layout, record, evento, recinto, scale){
+// ─── Imprimir: usa un iframe aislado (método robusto) ────────
+function doPrintPaper(layout, record, evento, recinto, copies){
   const { w: mmW, h: mmH } = paperSizeMM(layout.paperSize || 'A4');
-  const PX_PER_MM = 3.7795275591;
-  const pxW = mmW * PX_PER_MM;
-  const pxH = mmH * PX_PER_MM;
+  const n = Math.max(1, Math.min(99, copies || 1));
 
-  const paper = el('div', {
-    class: 'pp-paper',
-    style: {
-      position: 'relative',
-      width: pxW + 'px',
-      height: pxH + 'px',
-      background: '#fff',
-      fontFamily: layout.font || 'Arial, sans-serif',
-      transform: `scale(${scale})`,
-      transformOrigin: 'top center',
-      flexShrink: '0'
+  // Crear iframe oculto
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0;';
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+  // Construir el HTML del documento de impresión
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    @page { size: ${mmW}mm ${mmH}mm; margin: 0; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:${mmW}mm; }
+    .pp-sheet {
+      position: relative;
+      width: ${mmW}mm;
+      height: ${mmH}mm;
+      background: #fff;
+      overflow: hidden;
+      page-break-after: always;
+      font-family: ${layout.font || 'Arial, sans-serif'};
     }
-  });
+    .pp-sheet:last-child { page-break-after: auto; }
+    .pp-fld { position: absolute; white-space: pre; }
+  </style></head><body></body></html>`);
+  doc.close();
 
+  // Generar cada hoja directamente en el iframe
   const data = buildRecordData(record, evento, recinto);
   const driverLang = getDriverLang(record);
-
-  // Frase 1 (ámbar)
-  if(layout.ph1On && layout.phrase1){
-    paper.appendChild(el('div', {
-      style: {
-        position:'absolute', left:'10%', right:'10%', top:'8mm',
-        background:'#FEF3C7', border:'1.5px solid #F59E0B',
-        padding:'6px 10px', borderRadius:'4px',
-        fontSize:'12px', fontWeight:'600', color:'#92400E',
-        textAlign:'center', zIndex:'3'
-      }
-    }, interpolatePhrase(layout.phrase1, record, driverLang)));
-  }
-
-  // Frase 2 (pie)
-  if(layout.ph2On && layout.phrase2){
-    paper.appendChild(el('div', {
-      style: {
-        position:'absolute', left:'10%', right:'10%', bottom:'6mm',
-        border:'1.5px solid #000', padding:'5px 10px',
-        fontSize:'10px', textAlign:'center', zIndex:'3'
-      }
-    }, interpolatePhrase(layout.phrase2, record, driverLang)));
-  }
-
-  // Campos
   const fieldLayout = layout.fieldLayout || {};
-  for(const [fid, conf] of Object.entries(fieldLayout)){
-    if(conf.hidden) continue;
-    const def = FIELDS[fid];
-    if(!def) continue;
-    if(conf.condition && !evalCondition(conf.condition, data)) continue;
-    const value = data[def.source] != null && data[def.source] !== ''
-      ? data[def.source] : '';
-    if(!value && fid !== 'qr' && fid !== 'barcode') continue;
-    // Modo etiqueta: añade el label traducido
-    let text = value;
-    if(layout.labelMode === 'label' || layout.labelMode === 'linea'){
-      const labelKey = def.i18nKey || null;
-      const labelTxt = labelKey ? trIn(driverLang, labelKey, def.label) : def.label;
-      text = labelTxt + ': ' + value;
-    }
-    paper.appendChild(el('div', {
-      class: 'pp-field',
-      style: buildFieldStyle(conf, def)
-    }, text));
-  }
 
-  return paper;
-}
-
-// ─── Imprimir: clona el paper a tamaño real y window.print() ──
-function doPrintPaper(layout, record, evento, recinto, copies){
-  const wrap = document.createElement('div');
-  wrap.id = '__pp_print';
-  wrap.className = 'pp-print-area';
-  wrap.style.cssText = 'position:absolute; top:0; left:0; margin:0; padding:0;';
-
-  const n = Math.max(1, Math.min(99, copies || 1));
   for(let i = 0; i < n; i++){
-    const paper = renderPaper(layout, record, evento, recinto, 1); // scale 1 = tamaño real
-    paper.style.transform = 'none';
-    if(i < n - 1) paper.classList.add('pp-page-break');
-    wrap.appendChild(paper);
-  }
-  document.body.appendChild(wrap);
-  document.body.classList.add('pp-printing');
+    const sheet = doc.createElement('div');
+    sheet.className = 'pp-sheet';
 
+    // Frase 1
+    if(layout.ph1On && layout.phrase1){
+      const f1 = doc.createElement('div');
+      f1.style.cssText = 'position:absolute;left:10%;right:10%;top:8mm;background:#FEF3C7;border:1.5px solid #F59E0B;padding:6px 10px;border-radius:4px;font-size:12px;font-weight:600;color:#92400E;text-align:center;';
+      f1.textContent = interpolatePhrase(layout.phrase1, record, driverLang);
+      sheet.appendChild(f1);
+    }
+    // Frase 2
+    if(layout.ph2On && layout.phrase2){
+      const f2 = doc.createElement('div');
+      f2.style.cssText = 'position:absolute;left:10%;right:10%;bottom:6mm;border:1.5px solid #000;padding:5px 10px;font-size:10px;text-align:center;';
+      f2.textContent = interpolatePhrase(layout.phrase2, record, driverLang);
+      sheet.appendChild(f2);
+    }
+    // Campos
+    for(const [fid, conf] of Object.entries(fieldLayout)){
+      if(conf.hidden) continue;
+      const def = FIELDS[fid];
+      if(!def) continue;
+      if(conf.condition && !evalCondition(conf.condition, data)) continue;
+      const value = data[def.source] != null ? data[def.source] : '';
+      if(!value) continue;
+      let text = value;
+      if(layout.labelMode === 'label' || layout.labelMode === 'linea'){
+        const labelKey = def.i18nKey || null;
+        const labelTxt = labelKey ? trIn(driverLang, labelKey, def.label) : def.label;
+        text = labelTxt + ': ' + value;
+      }
+      const fld = doc.createElement('div');
+      fld.className = 'pp-fld';
+      const s = buildFieldStyle(conf, def);
+      // Aplicar estilos al elemento del iframe
+      Object.assign(fld.style, {
+        left: s.left, top: s.top, fontSize: s.fontSize,
+        fontWeight: s.fontWeight, fontStyle: s.fontStyle,
+        textDecoration: s.textDecoration, color: s.color,
+        textAlign: s.textAlign, lineHeight: s.lineHeight,
+        letterSpacing: s.letterSpacing, transform: s.transform,
+        zIndex: s.zIndex, background: s.background, padding: s.padding
+      });
+      fld.textContent = text;
+      sheet.appendChild(fld);
+    }
+    doc.body.appendChild(sheet);
+  }
+
+  // Esperar a que el iframe renderice y lanzar impresión
   setTimeout(() => {
-    window.print();
-    setTimeout(() => {
-      wrap.remove();
-      document.body.classList.remove('pp-printing');
-    }, 300);
-  }, 80);
+    try{
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } catch(e){
+      toast('No se pudo abrir el diálogo de impresión', 'err');
+    }
+    // Quitar el iframe tras un margen para que el navegador termine
+    setTimeout(() => iframe.remove(), 1000);
+  }, 250);
 }
 
 /**
- * Abre el modal de previsualización + impresión del pase.
- * NO navega a ningún sitio.
+ * Imprime el pase de un registro DIRECTAMENTE — sin modal de preview.
+ * Carga la plantilla del evento y abre el diálogo de impresión de Chrome.
+ * Si no hay plantilla, avisa con un toast y no hace nada más.
+ * NO navega a ningún sitio, no requiere permiso del módulo Impresión.
  *
  * @param {string} modulo - 'referencias' | 'ingresos' | 'agenda'
  * @param {object} record - el registro a imprimir
@@ -234,13 +236,14 @@ export async function openPrintPassModal(modulo, record){
     toast('Sin registro para imprimir', 'err');
     return;
   }
+  if(record._empresaNivel === 'bloqueada'){
+    toast('⛔ Empresa bloqueada — no se puede imprimir', 'err', 4000);
+    return;
+  }
   const eventoId = record.eventoId || record.evento_id || '';
 
-  // Cuerpo del modal con estado "cargando"
-  const body = el('div', { class:'pp-modal-body' },
-    el('div', { class:'pp-loading' }, 'Cargando plantilla del evento…')
-  );
-  openModal({ title:'🖨 Imprimir pase', body, size:'lg' });
+  // Aviso de que estamos preparando (las cargas son rápidas pero por si acaso)
+  toast('Preparando impresión…', 'info', 1500);
 
   // Cargar evento + recinto + plantilla
   let evento = null, recinto = null, layout = null;
@@ -251,91 +254,30 @@ export async function openPrintPassModal(modulo, record){
       const recintos = await list('recintos', {});
       recinto = recintos.find(rc => rc.id === evento.recintoId) || null;
     }
-    // Plantilla por defecto del evento+módulo
     if(eventoId){
       const def = await loadDefaultTemplate(eventoId, modulo);
       if(def && def.layout) layout = def.layout;
       if(!layout){
-        // Probar cualquier plantilla del evento
         const tpls = await listTemplates(eventoId, modulo);
         if(tpls && tpls.length && tpls[0].layout) layout = tpls[0].layout;
       }
     }
   } catch(e){
-    body.innerHTML = '';
-    body.appendChild(el('div', { class:'pp-error' },
-      el('p', {}, 'No se pudo cargar la plantilla.'),
-      el('p', { class:'cell-mute' }, e.message || '')
-    ));
+    toast('No se pudo cargar la plantilla: ' + (e.message || ''), 'err', 4000);
     return;
   }
 
-  // Sin plantilla configurada para este evento
+  // Sin plantilla → aviso rápido, no manda nada a Chrome
   if(!layout || !layout.fieldLayout || Object.keys(layout.fieldLayout).length === 0){
-    body.innerHTML = '';
-    body.appendChild(el('div', { class:'pp-no-template' },
-      el('div', { class:'pp-no-template-ico' }, '🖨'),
-      el('h3', {}, 'Sin plantilla configurada'),
-      el('p', {}, evento
-        ? `El evento "${evento.nombre}" no tiene una plantilla de impresión para ${modulo}.`
-        : 'Este registro no tiene un evento asociado con plantilla.'),
-      el('p', { class:'cell-mute' },
-        'Pide a un administrador que configure la plantilla en el módulo Impresión.')
-    ));
-    // Footer solo con Cerrar
-    const footer = el('div', { class:'modal-foot' },
-      el('button', { class:'btn btn-secondary', onclick: closeModal }, 'Cerrar')
+    toast(
+      evento
+        ? `⚠ El evento "${evento.nombre}" no tiene plantilla de impresión para ${modulo}. Configúrala en el módulo Impresión.`
+        : '⚠ Este registro no tiene un evento con plantilla configurada.',
+      'warn', 6000
     );
-    setTimeout(() => body.parentElement.appendChild(footer), 30);
     return;
   }
 
-  // ── Render del preview ──
-  let copies = 1;
-  body.innerHTML = '';
-
-  // Info del registro
-  body.appendChild(el('div', { class:'pp-info' },
-    el('span', { class:'cell-plate' }, record.matricula || '—'),
-    el('span', { class:'cell-mute' }, ' · ' + (record.conductor || 'sin conductor')),
-    evento ? el('span', { class:'cell-mute' }, ' · ' + evento.nombre) : null
-  ));
-
-  // Preview escalado para caber en el modal
-  const previewWrap = el('div', { class:'pp-preview-wrap' });
-  const { w: mmW } = paperSizeMM(layout.paperSize || 'A4');
-  // Escala para que quepa en ~640px de ancho del modal
-  const scale = Math.min(1, 600 / (mmW * 3.78));
-  const paper = renderPaper(layout, record, evento, recinto, scale);
-  // El wrapper necesita altura porque el paper está escalado con transform
-  const { h: mmH } = paperSizeMM(layout.paperSize || 'A4');
-  previewWrap.style.height = (mmH * 3.78 * scale + 20) + 'px';
-  previewWrap.appendChild(paper);
-  body.appendChild(previewWrap);
-
-  // Control de copias
-  const copiesRow = el('div', { class:'pp-copies-row' });
-  copiesRow.appendChild(el('label', { class:'edit-label' }, 'Copias:'));
-  copiesRow.appendChild(el('input', {
-    type:'number', min:'1', max:'99', value:'1',
-    class:'field-input', style:{ width:'70px' },
-    oninput: e => { copies = Math.max(1, Math.min(99, Number(e.target.value) || 1)); }
-  }));
-  body.appendChild(copiesRow);
-
-  // Footer: Cerrar + Imprimir
-  const footer = el('div', { class:'modal-foot' },
-    el('button', { class:'btn btn-secondary', onclick: closeModal }, 'Cerrar'),
-    el('button', {
-      class:'btn btn-primary',
-      onclick: () => {
-        if(record._empresaNivel === 'bloqueada'){
-          toast('⛔ Empresa bloqueada — no se puede imprimir', 'err', 4000);
-          return;
-        }
-        doPrintPaper(layout, record, evento, recinto, copies);
-      }
-    }, '🖨 Imprimir')
-  );
-  setTimeout(() => body.parentElement.appendChild(footer), 30);
+  // Plantilla OK → directo al diálogo de Chrome con el pase
+  doPrintPaper(layout, record, evento, recinto, 1);
 }
