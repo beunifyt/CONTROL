@@ -256,7 +256,10 @@ async function loadRecords(){
     return;
   }
   try{
-    _state.records = await list(_state.modulo, {
+    // 'rampa' es una plantilla especial: usa registros de ingresos
+    // (es el pase que se imprime al registrar un ingreso nuevo).
+    const sourceCol = _state.modulo === 'rampa' ? 'ingresos' : _state.modulo;
+    _state.records = await list(sourceCol, {
       where:{eventoId:_state.eventoId},
       orderBy:'createdAt', order:'desc', limit:50
     });
@@ -303,8 +306,10 @@ function renderTopbar(){
   const moduloSel = el('select', { class:'select select-pill',
     onchange: async e => { _state.modulo = e.target.value; _state.currentTemplateId = null; await loadTemplate(); await loadRecords(); render(); }
   },
-    el('option', { value:'referencias', selected: _state.modulo === 'referencias' ? 'selected' : null }, '📄 Referencias'),
-    el('option', { value:'ingresos', selected: _state.modulo === 'ingresos' ? 'selected' : null }, '🚛 Ingresos')
+    el('option', { value:'referencias', selected: _state.modulo === 'referencias' ? 'selected' : null }, '🔖 Referencias'),
+    el('option', { value:'ingresos',    selected: _state.modulo === 'ingresos'    ? 'selected' : null }, '🚛 Ingresos'),
+    el('option', { value:'agenda',      selected: _state.modulo === 'agenda'      ? 'selected' : null }, '📅 Agenda'),
+    el('option', { value:'rampa',       selected: _state.modulo === 'rampa'       ? 'selected' : null }, '🏗 Rampa')
   );
   row1.appendChild(el('div', { class:'topbar-chip' },
     el('span', { html: icon('print'), class:'topbar-chip-ico' }),

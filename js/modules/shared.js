@@ -37,33 +37,14 @@ export function pageHeader({ title, sub, actions=[] }){
 }
 
 export function emptyState({ iconName='inbox', title='Sin datos', message='', action=null, columns=null, rowsCount=3 }){
-  const wrap = el('div', { class:'empty-with-skeleton' });
-
-  // Si hay columnas, mostramos la tabla con esqueleto encima del mensaje
-  if(columns && columns.length){
-    const tableWrap = el('div', { class:'table-wrap empty-skeleton-table' });
-    const tbl = el('table', { class:'table' });
-    tbl.appendChild(el('thead', {},
-      el('tr', {}, ...columns.map(c => el('th', {}, c)))
-    ));
-    const tb = el('tbody');
-    for(let i = 0; i < rowsCount; i++){
-      const tr = el('tr', { class:'empty-skeleton-row' });
-      for(const c of columns) tr.appendChild(el('td', {}, el('span', { class:'skel-bar' })));
-      tb.appendChild(tr);
-    }
-    tbl.appendChild(tb);
-    tableWrap.appendChild(tbl);
-    wrap.appendChild(tableWrap);
-  }
-
-  wrap.appendChild(el('div', { class:'empty empty-floating' },
+  // Versión limpia: solo el mensaje centrado, sin tabla skeleton de
+  // fondo (creaba ruido visual al superponerse).
+  return el('div', { class:'empty empty-clean' },
     el('div', { class:'empty-icon' }, el('span', { html: icon(iconName) })),
     el('div', { class:'empty-title' }, title),
     message ? el('div', { class:'empty-msg' }, message) : null,
     action
-  ));
-  return wrap;
+  );
 }
 
 export function statCard({ label, value, iconName='dashboard', color='blue' }){

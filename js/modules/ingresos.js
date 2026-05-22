@@ -1,5 +1,6 @@
 // ingresos.js — Ingresos libres (tipo 2) con campo Posición separado
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, todayKey, chipTel } from '../utils.js';
+import { getOrderedFields, openFieldConfig } from '../field-config.js';
 import { getDefaultEventoId } from '../utils.js';
 import { listLive, list, update, remove, createIngreso, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons, printRecord } from './shared.js';
@@ -10,6 +11,34 @@ import { scanPlate } from '../ocr.js';
 import { logger } from '../logger.js';
 import { smartTable, savedFiltersBar } from '../table-helpers.js';
 import { openContactDriverModal } from '../contact-driver.js';
+
+// Definición completa de campos del formulario de ingreso.
+// El usuario puede ocultar y reordenar desde el botón "Campos".
+const ALL_FORM_FIELDS = [
+  { id:'matricula',    label:'Matrícula',     required:true,  type:'text' },
+  { id:'remolque',     label:'Remolque',      type:'text' },
+  { id:'conductor',    label:'Conductor',     type:'text' },
+  { id:'telefono',     label:'Teléfono',      type:'text' },
+  { id:'empresa',      label:'Empresa',       full:true,      type:'text' },
+  { id:'eventoId',     label:'Evento',        required:true,  full:true, type:'select-evento' },
+  { id:'posicion',     label:'Posición',      type:'number' },
+  { id:'hall',         label:'Hall',          type:'text' },
+  { id:'stand',        label:'Stand',         type:'text' },
+  { id:'tipoVehiculo', label:'Tipo vehículo', type:'select', options:[
+    { value:'camion', label:'Camión' },
+    { value:'trailer', label:'Trailer' },
+    { value:'furgoneta', label:'Furgoneta' },
+    { value:'otro', label:'Otro' }
+  ]},
+  { id:'estado', label:'Estado', type:'select', options:[
+    { value:'lista_espera', label:'Lista de espera' },
+    { value:'dentro', label:'Dentro' },
+    { value:'salida', label:'Salida' }
+  ]},
+  { id:'horaEntrada', label:'Hora entrada', type:'time' },
+  { id:'horaSalida',  label:'Hora salida',  type:'time' },
+  { id:'notas',       label:'Notas',        type:'textarea', full:true }
+];
 
 let _container = null;
 let _items = [];
@@ -55,6 +84,13 @@ function render(){
     canImport: canCreate(p),
     canExport: true
   }));
+  if(canEdit(p)){
+    actions.push(el('button', {
+      class:'btn btn-secondary btn-sm',
+      title:'Elegir y reordenar qué campos aparecen en el formulario',
+      onclick: () => openFieldConfig('ingresos', ALL_FORM_FIELDS, () => render())
+    }, el('span', { html: '⚙' }), 'Campos'));
+  }
 
   _container.appendChild(pageHeader({
     title:'Ingresos',
@@ -174,6 +210,12 @@ function rowActions(i, p){
       el('span', { html: icon('edit') })));
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => printRecord('ingresos', i), title:'Imprimir pase' },
       el('span', { html: icon('print') })));
+    wrap.appendChild(el('button', {
+      class:'btn btn-ghost btn-icon btn-rampa',
+      onclick: () => printRecord('rampa', i),
+      title:'Imprimir pase RAMPA',
+      style:{ fontWeight:'700', color:'#b45309' }
+    }, 'R'));
   }
   if(canDelete(p)){
     wrap.appendChild(el('button', { class:'btn btn-ghost btn-icon', onclick: () => deleteItem(i), title:'Eliminar' },
@@ -247,34 +289,37 @@ function openForm(item){
 
   const eventoOpts = [{ value:'', label:'Seleccionar evento' }, ..._eventos.map(e => ({ value:e.id, label:e.nombre }))];
 
+  const orderedFields = getOrderedFields('ingresos', ALL_FORM_FIELDS);
   const grid = el('div', { class:'form-grid' });
-  grid.appendChild(formField({ label:'Matrícula', name:'matricula', value:data.matricula, required:true, placeholder:'Ej: 1234ABC' }));
-  grid.appendChild(formField({ label:'Remolque', name:'remolque', value:data.remolque, placeholder:'(opcional)' }));
-  grid.appendChild(formField({ label:'Conductor', name:'conductor', value:data.conductor }));
-  grid.appendChild(formField({ label:'Teléfono', name:'telefono', value:data.telefono }));
-  grid.appendChild(formField({ label:'Empresa', name:'empresa', value:data.empresa, full:true }));
-  grid.appendChild(formField({ label:'Evento', name:'eventoId', value:data.eventoId, options:eventoOpts, required:true, full:true }));
-  grid.appendChild(formField({
-    label: isEdit ? 'Posición' : 'Posición (vacío = automática)',
-    name:'posicion', type:'number', value:data.posicion || '',
-    hint: isEdit ? 'Editar manualmente la posición' : 'Si dejas vacío, el sistema asigna la siguiente disponible (reinicia cada día)'
-  }));
-  grid.appendChild(formField({ label:'Hall', name:'hall', value:data.hall }));
-  grid.appendChild(formField({ label:'Stand', name:'stand', value:data.stand }));
-  grid.appendChild(formField({ label:'Tipo vehículo', name:'tipoVehiculo', value:data.tipoVehiculo, options:[
-    { value:'camion', label:'Camión' },
-    { value:'trailer', label:'Trailer' },
-    { value:'furgoneta', label:'Furgoneta' },
-    { value:'otro', label:'Otro' }
-  ]}));
-  grid.appendChild(formField({ label:'Estado', name:'estado', value:data.estado, options:[
-    { value:'lista_espera', label:'Lista de espera' },
-    { value:'dentro', label:'Dentro' },
-    { value:'salida', label:'Salida' }
-  ]}));
-  grid.appendChild(formField({ label:'Hora entrada', name:'horaEntrada', type:'time', value:data.horaEntrada }));
-  grid.appendChild(formField({ label:'Hora salida', name:'horaSalida', type:'time', value:data.horaSalida }));
-  grid.appendChild(formField({ label:'Notas', name:'notas', type:'textarea', value:data.notas, full:true }));
+  for(const f of orderedFields){
+    if(f.type === 'select-evento'){
+      grid.appendChild(formField({
+        label:f.label, name:f.id, value:data[f.id], options:eventoOpts,
+        required:f.required, full:f.full
+      }));
+    } else if(f.type === 'select'){
+      grid.appendChild(formField({
+        label:f.label, name:f.id, value:data[f.id], options:f.options,
+        required:f.required, full:f.full
+      }));
+    } else if(f.id === 'posicion'){
+      grid.appendChild(formField({
+        label: isEdit ? 'Posición' : 'Posición (vacío = automática)',
+        name:'posicion', type:'number', value:data.posicion || '',
+        hint: isEdit ? 'Editar manualmente la posición' : 'Si dejas vacío, el sistema asigna la siguiente disponible (reinicia cada día)'
+      }));
+    } else if(f.id === 'matricula'){
+      grid.appendChild(formField({
+        label:f.label, name:f.id, value:data[f.id], required:true,
+        placeholder:'Ej: 1234ABC'
+      }));
+    } else {
+      grid.appendChild(formField({
+        label:f.label, name:f.id, type:f.type, value:data[f.id],
+        required:f.required, full:f.full
+      }));
+    }
+  }
   form.appendChild(grid);
 
   const footer = el('div', { class:'modal-foot' },
