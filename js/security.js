@@ -12,7 +12,7 @@ import { db } from './firebase-config.js';
 import {
   collection, doc, getDoc, setDoc, updateDoc, query, where,
   getDocs, orderBy, limit, serverTimestamp, addDoc, increment
-} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import { logger } from './logger.js';
 
 const MAX_ATTEMPTS = 5;
