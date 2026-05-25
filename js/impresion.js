@@ -54,7 +54,6 @@ export const FIELDS = {
   mensajeRampa:   { cat:'Extra',     ico:'💬', label:'Mensaje rampa',  source:'mensajeRampa',   defSize:11 },
   estado:         { cat:'Extra',     ico:'🏷️', label:'Estado',         source:'estado',         defSize:11 },
   qr:             { cat:'Códigos',   ico:'📲', label:'QR seguimiento', source:'qr',             defSize:80 },
-  qrDireccion:    { cat:'Códigos',   ico:'🗺️', label:'QR dirección',   source:'qrDireccion',    defSize:80 },
   barcode:        { cat:'Códigos',   ico:'📊', label:'Código barras',  source:'barcode',        defSize:60 },
   codSeguridad:   { cat:'Códigos',   ico:'🔐', label:'Cód. seguridad', source:'codSeguridad',   defSize:16 },
   logo:           { cat:'Marca',     ico:'🏷', label:'Logo empresa',   source:'logo',           defSize:40 },
@@ -256,8 +255,6 @@ async function loadRecords(){
     return;
   }
   try{
-    // 'rampa' es una plantilla especial: usa registros de ingresos
-    // (es el pase que se imprime al registrar un ingreso nuevo).
     const sourceCol = _state.modulo === 'rampa' ? 'ingresos' : _state.modulo;
     _state.records = await list(sourceCol, {
       where:{eventoId:_state.eventoId},
@@ -469,14 +466,8 @@ function renderCanvas(){
   const size = PAPER_SIZES[_state.paperSize];
   let mmW = size.w, mmH = size.h;
   if(_state.paperOrient === 'landscape'){ const t = mmW; mmW = mmH; mmH = t; }
-  // Tamaño REAL del papel (sin zoom). El zoom se aplica con
-  // transform:scale() sobre el canvas-paper, así fuentes (px),
-  // posiciones (%) y papel escalan TODOS juntos.
-  const pxWreal = mmW * 3.78;
-  const pxHreal = mmH * 3.78;
-  // Tamaño visual ya escalado (para reglas y reservar espacio).
-  const pxW = pxWreal * _state.zoom;
-  const pxH = pxHreal * _state.zoom;
+  const pxW = mmW * 3.78 * _state.zoom;
+  const pxH = mmH * 3.78 * _state.zoom;
 
   // ── Regla milimétrica (top + left) ───────────────────────
   if(_state.showRuler){
@@ -508,12 +499,10 @@ function renderCanvas(){
   const paper = el('div', {
     class:`canvas-paper ${_state.troquel ? 'troquel' : ''} ${_state.showGrid ? 'has-grid' : ''}`,
     style:{
-      width: pxWreal + 'px',
-      height: pxHreal + 'px',
+      width: pxW + 'px',
+      height: pxH + 'px',
       fontFamily: _state.font,
-      transform: `scale(${_state.zoom})`,
-      transformOrigin: 'top center',
-      '--grid-size': (_state.gridSize > 0 ? (_state.gridSize * 3.78) : 0) + 'px'
+      '--grid-size': (_state.gridSize > 0 ? (_state.gridSize * 3.78 * _state.zoom) : 0) + 'px'
     },
     ondragover: e => {
       e.preventDefault();
@@ -643,16 +632,7 @@ function renderCanvas(){
     paper.appendChild(renderField(fid, conf, data));
   }
 
-  // El paper usa transform:scale(), que NO afecta al flujo de layout:
-  // el navegador seguiría reservando el tamaño REAL. Lo envolvemos en
-  // un contenedor con las dimensiones VISUALES (ya escaladas) para que
-  // el scroll y el centrado sean correctos.
-  const paperBox = el('div', {
-    class:'canvas-paper-box',
-    style:{ width: pxW + 'px', height: pxH + 'px', position:'relative', flexShrink:'0' }
-  });
-  paperBox.appendChild(paper);
-  inner.appendChild(paperBox);
+  inner.appendChild(paper);
   wrap.appendChild(inner);
   return wrap;
 }
@@ -750,73 +730,10 @@ function buildFieldStyle(conf, def, extra = {}){
   };
 }
 
-// Construye el contenido visual de los campos "especiales"
-// (QR, código de barras, logos). Devuelve un nodo o null si fid
-// no es un campo especial. Se usa tanto en el render editable como
-// en la vista cliente / impresión, para que el QR SÍ se imprima
-// (antes la rama clientMode los dejaba vacíos).
-function buildSpecialContent(fid, conf, data){
-  if(fid === 'qr' || fid === 'qrDireccion'){
-    const size = conf.fontSize || 80;
-    let qrData = '';
-    if(fid === 'qr'){
-      const base = (_state.qrBase || '').trim();
-      const rid = data._recordId || '';
-      qrData = base
-        ? (base.replace(/\/+$/, '') + '/' + rid)
-        : ('BeUnifyT:' + (rid || 'demo'));
-    } else {
-      const dir = (data.recintoDir || '').trim();
-      qrData = dir
-        ? ('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(dir))
-        : '';
-    }
-    if(qrData){
-      const px = Math.round(size * 4);
-      const apiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size='
-        + px + 'x' + px + '&margin=0&data=' + encodeURIComponent(qrData);
-      return el('img', {
-        src: apiUrl, alt: 'QR',
-        style:{ width: size + 'px', height: size + 'px', display:'block' }
-      });
-    }
-    return el('div', { style:{
-      width: size + 'px', height: size + 'px',
-      border:'1px dashed #b45309', display:'flex',
-      alignItems:'center', justifyContent:'center',
-      fontSize: Math.max(size/7, 7) + 'px', color:'#b45309',
-      textAlign:'center', lineHeight:'1.1', padding:'2px', boxSizing:'border-box'
-    }}, fid === 'qrDireccion' ? 'Sin dirección de recinto' : 'Sin URL de seguimiento');
-  }
-  if(fid === 'barcode'){
-    const w = (conf.fontSize || 60) * 2, h = (conf.fontSize || 60) / 2;
-    return el('div', { style:{
-      width: w + 'px', height: h + 'px',
-      background:'repeating-linear-gradient(90deg, #000 0, #000 2px, #fff 2px, #fff 4px, #000 4px, #000 5px, #fff 5px, #fff 7px)'
-    }});
-  }
-  if(fid === 'logo' || fid === 'recintoLogo'){
-    const s = conf.fontSize || 40;
-    return el('div', { style:{
-      width: s + 'px', height: s + 'px',
-      background:'#E5E7EB', display:'flex',
-      alignItems:'center', justifyContent:'center',
-      fontSize:'10px', color:'#6B7280'
-    }}, 'LOGO');
-  }
-  return null;
-}
-
 function renderField(fid, conf, data){
   const def = FIELDS[fid];
   if(!def) return el('span', {});
-  const rawValue = data[def.source];
-  // Un campo sin dato en el registro llega como '' (cadena vacía).
-  // Antes eso producía un nodo de texto vacío => invisible en el canvas
-  // aunque el campo estuviera colocado. Ahora detectamos el vacío y
-  // mostramos un placeholder con el nombre del campo en modo edición.
-  const isEmpty = rawValue == null || String(rawValue).trim() === '';
-  const value = isEmpty ? (def.label || def.source) : rawValue;
+  const value = data[def.source] != null ? data[def.source] : '—';
 
   // Plantilla condicional
   if(conf.condition && !evalCondition(conf.condition, data)){
@@ -833,13 +750,10 @@ function renderField(fid, conf, data){
       class: `canvas-field ${conf.highlight ? 'highlight' : ''}`,
       style: buildFieldStyle(conf, def, { zIndex: String(zIdx), pointerEvents:'none', cursor:'default' })
     });
-    const special = buildSpecialContent(fid, conf, data);
-    if(special){
-      view.appendChild(special);
+    if(fid === 'qr' || fid === 'barcode' || fid === 'logo' || fid === 'recintoLogo'){
+      // mismo render que el bloque normal abajo (lo reutilizamos via continuación)
     } else {
-      // En vista cliente / impresión un campo sin dato queda vacío,
-      // nunca muestra el nombre del campo como placeholder.
-      view.appendChild(document.createTextNode(isEmpty ? '' : value));
+      view.appendChild(document.createTextNode(value));
     }
     return view;
   }
@@ -980,9 +894,28 @@ function renderField(fid, conf, data){
   });
 
   // Renderizar según tipo
-  const special = buildSpecialContent(fid, conf, data);
-  if(special){
-    node.appendChild(special);
+  if(fid === 'qr'){
+    const size = conf.fontSize || 80;
+    node.appendChild(el('div', { style:{
+      width: size + 'px', height: size + 'px',
+      background:'#000', display:'flex',
+      alignItems:'center', justifyContent:'center',
+      color:'#fff', fontSize:'10px', fontFamily:'monospace'
+    }}, 'QR'));
+  } else if(fid === 'barcode'){
+    const w = (conf.fontSize || 60) * 2, h = (conf.fontSize || 60) / 2;
+    node.appendChild(el('div', { style:{
+      width: w + 'px', height: h + 'px',
+      background:'repeating-linear-gradient(90deg, #000 0, #000 2px, #fff 2px, #fff 4px, #000 4px, #000 5px, #fff 5px, #fff 7px)'
+    }}));
+  } else if(fid === 'logo' || fid === 'recintoLogo'){
+    const s = conf.fontSize || 40;
+    node.appendChild(el('div', { style:{
+      width: s + 'px', height: s + 'px',
+      background:'#E5E7EB', display:'flex',
+      alignItems:'center', justifyContent:'center',
+      fontSize:'10px', color:'#6B7280'
+    }}, 'LOGO'));
   } else {
     // Modo etiqueta — el LABEL se traduce al idioma del conductor
     const recordsAll2 = getAllRecords();
@@ -997,17 +930,7 @@ function renderField(fid, conf, data){
       node.appendChild(el('span', { style:{ borderBottom:'1px solid #000', minWidth:'80px', display:'inline-block' } }));
       return node;
     }
-    if(isEmpty){
-      // Campo colocado pero sin dato en este registro: mostramos el
-      // nombre como placeholder atenuado para que sea visible y
-      // arrastrable. NO se imprime (ver rama clientMode arriba).
-      node.appendChild(el('span', {
-        class:'field-placeholder',
-        style:{ opacity:'0.4', fontStyle:'italic' }
-      }, value));
-    } else {
-      node.appendChild(document.createTextNode(value));
-    }
+    node.appendChild(document.createTextNode(value));
   }
 
   return node;
@@ -1094,7 +1017,6 @@ function getRecordData(){
     codSeguridad: codSeg,
     recintoLogo: '[LOGO]',
     recintoDir: recinto?.direccion || '',
-    _recordId: r.id || '',
     _empresaNivel: r._empresaNivel || 'estandar',
     _tipoVehiculo: r.tipoVehiculo || ''
   };
