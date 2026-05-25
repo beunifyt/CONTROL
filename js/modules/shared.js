@@ -37,6 +37,8 @@ export function pageHeader({ title, sub, actions=[] }){
 }
 
 export function emptyState({ iconName='inbox', title='Sin datos', message='', action=null, columns=null, rowsCount=3 }){
+  // Versión limpia: solo el mensaje centrado, sin tabla skeleton de
+  // fondo (creaba ruido visual al superponerse).
   return el('div', { class:'empty empty-clean' },
     el('div', { class:'empty-icon' }, el('span', { html: icon(iconName) })),
     el('div', { class:'empty-title' }, title),
@@ -107,7 +109,7 @@ import { toast, openModal, closeModal, el as _el } from '../utils.js';
 /**
  * Devuelve un array de botones Excel para meter en pageHeader actions.
  * @param {string} modulo - nombre de la colección (referencias, ingresos, etc.)
- * @param {object} opts - { eventoId, canImport, canExport }
+ * @param {object} opts - { eventoId, eventoNombre, canImport, canExport }
  */
 export function excelButtons(modulo, opts = {}){
   const buttons = [];
@@ -120,7 +122,7 @@ export function excelButtons(modulo, opts = {}){
   if(opts.canImport){
     buttons.push(el('button', {
       class:'btn btn-secondary btn-sm', title:'Descargar plantilla',
-      onclick: () => downloadTemplate(modulo)
+      onclick: () => downloadTemplate(modulo, { eventoId: opts.eventoId, eventoNombre: opts.eventoNombre })
     }, el('span', { html: '📋' }), 'Plantilla'));
 
     buttons.push(el('button', {
