@@ -1716,38 +1716,37 @@ body[data-theme="contrast"] .table td{ border-width:1.5px !important; }
 .fc-toggle:hover{ transform:translateY(-1px); }
 
 /* ═══════════════════════════════════════════════
-   Sidebar plegable — botón como fila en el pie
+   Sidebar plegable — botón pegado al borde, negro, siempre al frente
 ═══════════════════════════════════════════════ */
-/* Botón de plegar: una fila normal dentro del pie del sidebar.
-   Ancho completo, sitio fijo, imposible que se esconda. */
 .sidebar-collapse-row{
-  display:flex; align-items:center; gap:10px;
-  width:100%;
-  padding:9px 12px;
-  margin-bottom:8px;
-  background:rgba(255,255,255,0.04);
-  border:1px solid rgba(255,255,255,0.08);
-  border-radius:8px;
-  color:var(--sb-text);
-  font-family:inherit; font-size:13px; font-weight:500;
+  position:absolute;
+  top:50%; right:-14px;
+  transform:translateY(-50%);
+  width:28px; height:28px;
+  display:flex; align-items:center; justify-content:center;
+  padding:0;
+  background:#0F1729;
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:50%;
+  color:#fff;
   cursor:pointer;
-  transition: background 0.12s, color 0.12s;
+  z-index:1000;
+  box-shadow:0 2px 8px rgba(0,0,0,0.25);
+  transition: background 0.12s, transform 0.12s;
 }
 .sidebar-collapse-row:hover{
-  background:var(--sb-hover);
-  color:#fff;
+  background:#000;
+  transform:translateY(-50%) scale(1.08);
 }
-.sidebar-collapse-row:active{ transform:scale(0.98); }
-.sidebar-collapse-row .scr-icon{ flex-shrink:0; }
+.sidebar-collapse-row:active{ transform:translateY(-50%) scale(0.95); }
+.sidebar-collapse-row .scr-icon{ flex-shrink:0; color:#fff; }
+.sidebar-collapse-row .scr-label{ display:none; }
+
+/* El sidebar necesita position:relative para que el botón se ancle */
+.sidebar{ position:relative; }
 
 /* ── Estado colapsado ── */
 .app-shell.sb-collapsed{ grid-template-columns: 64px 1fr; }
-
-/* En colapsado: solo el icono, centrado, y la flecha gira */
-.app-shell.sb-collapsed .sidebar-collapse-row{
-  justify-content:center; padding:9px 0;
-}
-.app-shell.sb-collapsed .scr-label{ display:none; }
 .app-shell.sb-collapsed .sidebar-collapse-row .scr-icon{ transform:rotate(180deg); }
 
 /* Cabecera: solo el logo centrado */
@@ -1814,13 +1813,3 @@ body[data-theme="contrast"] .table td{ border-width:1.5px !important; }
   border-bottom:1px solid var(--border);
 }
 .table tbody tr:last-child .col-spacer{ border-bottom:0; }
-
-/* Empty state limpio (reemplaza overlay flotante con skeleton de fondo) */
-.empty-clean{
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-  padding:48px 24px; text-align:center; color:var(--text-2);
-  background:transparent; border:0;
-}
-.empty-clean .empty-icon{ opacity:0.4; margin-bottom:8px; }
-.empty-clean .empty-title{ font-weight:600; font-size:15px; color:var(--text-1); }
-.empty-clean .empty-msg{ font-size:13px; margin-top:4px; }
