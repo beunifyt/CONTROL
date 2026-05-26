@@ -12,8 +12,7 @@ import {
 import { validateInvite, consumeInvite, INVITE_ERRORS } from './invites.js';
 import { startPermsListener, stopPermsListener } from './roles.js';
 import { cleanupAllListeners, registerListener } from './db.js';
-import { normalizeEmail, $, el, setText, toast, log, logErr } from './utils.js';
-import { logger } from './logger.js';
+import { normalizeEmail, $, el, setText, toast, log, logErr, logger } from './utils.js';
 import { tr, getLang, setLang } from './i18n.js';
 import { checkLoginLock, recordLoginFailure, clearLoginFailures, registerDeviceForUser, logAccess, getDeviceFingerprint, getDeviceLabel } from './security.js';
 
