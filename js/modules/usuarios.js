@@ -439,7 +439,6 @@ function renderPermsContent(body, container){
         ),
         el('span', { class:'pmod-level' },
           level === 'write' ? '✎' : level === 'read' ? '👁' : '🔒')
-        )
       );
       grid.appendChild(cell);
     }
