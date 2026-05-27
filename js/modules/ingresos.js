@@ -10,7 +10,6 @@ import { scanPlate } from '../ocr.js';
 import { logger } from '../logger.js';
 import { smartTable, savedFiltersBar } from '../table-helpers.js';
 import { openContactDriverModal } from '../contact-driver.js';
-import { getAgendaItemForIngreso } from '../agenda.js';
 
 let _container = null;
 let _items = [];
@@ -49,12 +48,6 @@ function render(){
       class:'btn btn-primary',
       onclick: () => openForm(null)
     }, el('span', { html: icon('plus') }), 'Nuevo Ingreso'));
-    
-    // Botón para absorber datos desde agenda
-    actions.push(el('button', {
-      class:'btn btn-secondary',
-      onclick: () => openAbsorberModal()
-    }, '⬇', 'Desde Agenda'));
   }
   actions.push(...excelButtons('ingresos', {
     eventoId: _filterEvento || null,
@@ -196,9 +189,9 @@ async function registrarSalida(i){
   } catch(e){ toast(e.message, 'err'); }
 }
 
-function openForm(item, prefilledData){
+function openForm(item){
   const isEdit = !!item;
-  const data = item || prefilledData || {
+  const data = item || {
     matricula:'', conductor:'', telefono:'', empresa:'',
     hall:'', stand:'', remolque:'', tipoVehiculo:'camion',
     eventoId:'', posicion:'', estado:'dentro',

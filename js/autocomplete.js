@@ -503,7 +503,7 @@ export function applyDataToForm(form, data, opts = {}){
 // ═══════════════════════════════════════════════════════════════
 // HELPER — Marcar cita de agenda como llegada (al absorberla)
 // ═══════════════════════════════════════════════════════════════
-import { doc, updateDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { updateDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 export async function markAgendaArrived(agendaId, horaReal = null){
   if(!agendaId) return;

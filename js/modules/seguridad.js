@@ -49,11 +49,13 @@ async function loadData(){
       listAllDevices(),
       list('users', { orderBy:'createdAt', order:'desc' })
     ]);
-    // Cargar últimos 50 accesos GLOBALES (de toda la tabla audit type=login)
-    _accessLogs = await list('audit', {
-      where:{ type:'login' },
-      orderBy:'createdAt', order:'desc', limit:50
+    // Traer últimos audits y filtrar type=login en cliente.
+    // Cuando el índice (type,createdAt) esté desplegado en Firestore,
+    // se puede volver a filtrar server-side con where:{ type:'login' }.
+    const todos = await list('audit', {
+      orderBy:'createdAt', order:'desc', limit:200
     });
+    _accessLogs = todos.filter(a => a.type === 'login').slice(0, 50);
   } catch(e){
     logger.error('Seguridad: error cargando datos', { error: e.message });
     _devices = []; _users = []; _accessLogs = [];

@@ -476,21 +476,3 @@ async function deleteItem(item){
   } catch(e){ toast(e.message, 'err'); }
 }
 
-// ── ABSORBER DATOS: Exportar item de agenda para pre-llenar ingresos ──
-export function getAgendaItemForIngreso(agendaId){
-  const agenda = _items.find(a => a.id === agendaId);
-  if(!agenda) return null;
-  
-  return {
-    matricula: agenda.matricula || '',
-    conductor: agenda.conductor || '',
-    telefono: agenda.telefono || '',
-    empresa: agenda.empresa || '',
-    hall: agenda.hall || '',
-    stand: agenda.stand || '',
-    remolque: agenda.remolque || '',
-    tipoVehiculo: agenda.tipoVehiculo || 'camion',
-    eventoId: agenda.eventoId || '',
-    notas: `[Cita ${agenda.fechaPlanificada ? new Date(agenda.fechaPlanificada.toDate ? agenda.fechaPlanificada.toDate() : agenda.fechaPlanificada).toLocaleDateString('es-ES') : ''}] ${agenda.notas || ''}`.trim()
-  };
-}
