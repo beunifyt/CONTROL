@@ -6,6 +6,7 @@ import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelBut
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
 import { smartTable, savedFiltersBar } from '../table-helpers.js';
+import { logIncidencia, logChange } from '../audit.js';
 
 let _container = null;
 let _items = [];
@@ -48,7 +49,6 @@ function render(){
   }
   actions.push(...excelButtons('agenda', {
     eventoId: _filterEvento || null,
-    eventoNombre: (_eventos.find(e => e.id === _filterEvento) || {}).nombre || '',
     canImport: canCreate(p),
     canExport: true
   }));
@@ -319,8 +319,28 @@ function openForm(item){
       gastoTotal: _gastos.reduce((acc, g) => acc + (Number(g.importe) || 0), 0)
     };
     try{
-      if(isEdit) await update('agenda', item.id, payload);
-      else await create('agenda', payload);
+      if(isEdit){
+        // Detectar cambios sensibles (hall, stand) que pueden afectar ingreso vivo
+        const cambiosSensibles = [];
+        if(item.hall && payload.hall && item.hall !== payload.hall){
+          cambiosSensibles.push(`Hall: ${item.hall} → ${payload.hall}`);
+        }
+        if(item.stand && payload.stand && item.stand !== payload.stand){
+          cambiosSensibles.push(`Stand: ${item.stand} → ${payload.stand}`);
+        }
+        if(item.matricula && payload.matricula && item.matricula !== payload.matricula){
+          cambiosSensibles.push(`Matrícula: ${item.matricula} → ${payload.matricula}`);
+        }
+        await update('agenda', item.id, payload);
+        await logChange('agenda', item.id, 'update', item, payload);
+        if(cambiosSensibles.length && (item.estado === 'llegado' || item.estado === 'finalizado')){
+          await logIncidencia('agenda', item.id, 'cambio_destino',
+            `Cambios después de llegada: ${cambiosSensibles.join(' | ')}. Verificar con recinto.`);
+          toast('⚠ Cambio sensible registrado. Notificar al recinto.', 'warn', 5000);
+        }
+      } else {
+        await create('agenda', payload);
+      }
       toast('Guardado', 'ok');
       closeModal();
     } catch(e){ toast(e.message, 'err'); }
@@ -454,4 +474,23 @@ async function deleteItem(item){
     await remove('agenda', item.id);
     toast('Eliminado', 'ok');
   } catch(e){ toast(e.message, 'err'); }
+}
+
+// ── ABSORBER DATOS: Exportar item de agenda para pre-llenar ingresos ──
+export function getAgendaItemForIngreso(agendaId){
+  const agenda = _items.find(a => a.id === agendaId);
+  if(!agenda) return null;
+  
+  return {
+    matricula: agenda.matricula || '',
+    conductor: agenda.conductor || '',
+    telefono: agenda.telefono || '',
+    empresa: agenda.empresa || '',
+    hall: agenda.hall || '',
+    stand: agenda.stand || '',
+    remolque: agenda.remolque || '',
+    tipoVehiculo: agenda.tipoVehiculo || 'camion',
+    eventoId: agenda.eventoId || '',
+    notas: `[Cita ${agenda.fechaPlanificada ? new Date(agenda.fechaPlanificada.toDate ? agenda.fechaPlanificada.toDate() : agenda.fechaPlanificada).toLocaleDateString('es-ES') : ''}] ${agenda.notas || ''}`.trim()
+  };
 }

@@ -105,7 +105,6 @@ function render(){
   }
   actions.push(...excelButtons('referencias', {
     eventoId: _filterEvento || null,
-    eventoNombre: (_eventos.find(e => e.id === _filterEvento) || {}).nombre || '',
     canImport: canCreate(p),
     canExport: true
   }));
@@ -602,7 +601,7 @@ function openForm(item){
         attachAutocomplete(inpMatricula, 'matricula', (data) => {
           applyDataToForm(form, data);
           toast(`Matrícula encontrada (${data.matricula})`, 'ok');
-        });
+        }, { eventoId: () => form.querySelector('[name="eventoId"]')?.value || null });
         // Botón OCR cámara junto al input
         const scanBtn = document.createElement('button');
         scanBtn.type = 'button';
@@ -628,7 +627,7 @@ function openForm(item){
           applyDataToForm(form, data);
           toast(`Referencia encontrada en Agenda`, 'ok');
           logger.info(`Referencia ${data.referencia} absorbida desde agenda`, { agendaId: data.agendaId });
-        });
+        }, { eventoId: () => form.querySelector('[name="eventoId"]')?.value || null });
       }
       if(inpConductor){
         attachAutocomplete(inpConductor, 'conductor', (data) => {

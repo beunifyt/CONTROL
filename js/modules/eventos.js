@@ -170,6 +170,9 @@ function openForm(item){
         estado: fd.estado || 'planificado',
         previsionVehiculos: Number(fd.previsionVehiculos) || 0,
         descripcion: fd.descripcion || '',
+        tipoReferencia: fd.tipoReferencia || 'unica',
+        permiteHerenciaPasaporte: !!fd.permiteHerenciaPasaporte,
+        permiteAbsorberHistorial: !!fd.permiteAbsorberHistorial,
         camposActivos
       };
       if(isEdit) await update('eventos', item.id, payload);
@@ -197,6 +200,26 @@ function openForm(item){
     { value:'cancelado', label:'Cancelado' }
   ]}));
   grid.appendChild(formField({ label:'Previsión vehículos', name:'previsionVehiculos', type:'number', value:data.previsionVehiculos }));
+  grid.appendChild(formField({ label:'Tipo de referencia', name:'tipoReferencia', value:data.tipoReferencia || 'unica', options:[
+    { value:'unica', label:'Única (absorbe datos desde agenda)' },
+    { value:'dividida', label:'Dividida (no absorbe, solo guarda código corto)' },
+    { value:'sin_referencia', label:'Sin referencia (ingresos libres)' }
+  ], full:true }));
+  // Checkboxes flags
+  const chkPasaporte = el('div', { class:'field field-full' },
+    el('label', { class:'field-label', style:{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer'} },
+      el('input', { type:'checkbox', name:'permiteHerenciaPasaporte', checked: data.permiteHerenciaPasaporte ? 'checked' : null }),
+      el('span', {}, 'Permite heredar pasaporte/DNI del histórico')
+    )
+  );
+  const chkHistorial = el('div', { class:'field field-full' },
+    el('label', { class:'field-label', style:{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer'} },
+      el('input', { type:'checkbox', name:'permiteAbsorberHistorial', checked: data.permiteAbsorberHistorial ? 'checked' : null }),
+      el('span', {}, 'Permite absorber datos extra del histórico (hall, stand, remolque)')
+    )
+  );
+  grid.appendChild(chkPasaporte);
+  grid.appendChild(chkHistorial);
   grid.appendChild(formField({ label:'Descripción', name:'descripcion', value:data.descripcion, type:'textarea', full:true }));
   form.appendChild(grid);
 

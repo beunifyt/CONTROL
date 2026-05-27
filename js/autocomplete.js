@@ -14,10 +14,35 @@
 
 import { db } from './firebase-config.js';
 import {
-  collection, query, where, orderBy, limit, getDocs
+  collection, query, where, orderBy, limit, getDocs, doc, getDoc
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import { logger } from './logger.js';
 import { normalize, el, debounce } from './utils.js';
+
+// ── Caché eventos (sus flags se consultan en cada match) ──────
+const _eventoCache = new Map();
+async function getEventoFlags(eventoId){
+  if(!eventoId) return null;
+  if(_eventoCache.has(eventoId)){
+    const e = _eventoCache.get(eventoId);
+    if(Date.now() - e.t < 60000) return e.data;
+  }
+  try{
+    const snap = await getDoc(doc(db, 'eventos', eventoId));
+    if(!snap.exists()) return null;
+    const d = snap.data();
+    const flags = {
+      tipoReferencia: d.tipoReferencia || 'unica',
+      permiteHerenciaPasaporte: !!d.permiteHerenciaPasaporte,
+      permiteAbsorberHistorial: !!d.permiteAbsorberHistorial
+    };
+    _eventoCache.set(eventoId, { data: flags, t: Date.now() });
+    return flags;
+  } catch(e){
+    logger.warn(`getEventoFlags(${eventoId}) error`, { error: e.message });
+    return null;
+  }
+}
 
 // ── Cachés con TTL para no machacar Firestore ────────────────
 const CACHE_TTL = 60 * 1000; // 1 minuto
@@ -44,17 +69,20 @@ function cacheSet(key, data){ _cache.set(key, { data, t: Date.now() }); }
  *  4. Buscar en `conductores.matriculas` array
  * Devuelve { source, data } o null.
  */
-export async function matchMatricula(plate){
+export async function matchMatricula(plate, eventoId = null){
   if(!plate || plate.length < 3) return null;
-  const key = `mat:${plate}`;
+  const key = `mat:${plate}:${eventoId || 'noev'}`;
   const cached = cacheGet(key);
   if(cached !== null) return cached;
 
   const norm = String(plate).toUpperCase().trim();
+  const flags = await getEventoFlags(eventoId);
+  const absorber = flags?.permiteAbsorberHistorial !== false; // por defecto true si no hay flag
+  const heredarPass = !!flags?.permiteHerenciaPasaporte;
   let result = null;
 
   try{
-    // 1) Flota (fuente de verdad)
+    // 1) Flota (fuente de verdad - tipo vehículo, remolque, empresa)
     const qFlota = query(collection(db, 'flota'),
       where('matricula', '==', norm), limit(1));
     const snapFlota = await getDocs(qFlota);
@@ -76,7 +104,7 @@ export async function matchMatricula(plate){
       };
     }
 
-    // 2) Si no en flota, buscar última referencia
+    // 2) Última referencia (siempre trae matrícula+teléfono+idioma; resto solo si absorber=true)
     if(!result){
       const qRef = query(collection(db, 'referencias'),
         where('matricula', '==', norm),
@@ -84,22 +112,34 @@ export async function matchMatricula(plate){
       const snapRef = await getDocs(qRef);
       if(!snapRef.empty){
         const d = snapRef.docs[0].data();
+        const base = {
+          matricula: d.matricula,
+          telefono: d.telefono || '',
+          conductorLang: d.conductorLang || d.lang || d.idioma || '',
+          tipoVehiculo: d.tipoVehiculo || 'camion'
+        };
+        // Datos extra solo si el evento lo permite
+        if(absorber){
+          base.remolque = d.remolque || '';
+          base.conductor = d.conductor || '';
+          base.empresa = d.empresa || '';
+          base.hall = d.hall || '';
+          base.stand = d.stand || '';
+        }
+        if(heredarPass){
+          base.pasaporte = d.pasaporte || '';
+          base.fNacimiento = d.fNacimiento || '';
+          base.pais = d.pais || '';
+        }
         result = {
           source: 'referencias',
           sourceLabel: 'Última referencia',
-          data: {
-            matricula: d.matricula,
-            remolque: d.remolque || '',
-            conductor: d.conductor || '',
-            telefono: d.telefono || '',
-            empresa: d.empresa || '',
-            tipoVehiculo: d.tipoVehiculo || 'camion'
-          }
+          data: base
         };
       }
     }
 
-    // 3) Si tampoco, último ingreso
+    // 3) Último ingreso (mismo criterio)
     if(!result){
       const qIng = query(collection(db, 'ingresos'),
         where('matricula', '==', norm),
@@ -107,17 +147,28 @@ export async function matchMatricula(plate){
       const snapIng = await getDocs(qIng);
       if(!snapIng.empty){
         const d = snapIng.docs[0].data();
+        const base = {
+          matricula: d.matricula,
+          telefono: d.telefono || '',
+          conductorLang: d.conductorLang || d.lang || d.idioma || '',
+          tipoVehiculo: d.tipoVehiculo || 'camion'
+        };
+        if(absorber){
+          base.remolque = d.remolque || '';
+          base.conductor = d.conductor || '';
+          base.empresa = d.empresa || '';
+          base.hall = d.hall || '';
+          base.stand = d.stand || '';
+        }
+        if(heredarPass){
+          base.pasaporte = d.pasaporte || '';
+          base.fNacimiento = d.fNacimiento || '';
+          base.pais = d.pais || '';
+        }
         result = {
           source: 'ingresos',
           sourceLabel: 'Último ingreso',
-          data: {
-            matricula: d.matricula,
-            remolque: d.remolque || '',
-            conductor: d.conductor || '',
-            telefono: d.telefono || '',
-            empresa: d.empresa || '',
-            tipoVehiculo: d.tipoVehiculo || 'camion'
-          }
+          data: base
         };
       }
     }
@@ -135,13 +186,22 @@ export async function matchMatricula(plate){
  * Busca en `agenda` (citas planificadas).
  * Si encuentra, devuelve los datos previstos para absorber.
  */
-export async function matchReferencia(refNum){
+export async function matchReferencia(refNum, eventoId = null){
   if(!refNum || refNum.length < 2) return null;
-  const key = `ref:${refNum}`;
+  const key = `ref:${refNum}:${eventoId || 'noev'}`;
   const cached = cacheGet(key);
   if(cached !== null) return cached;
 
   const norm = String(refNum).toUpperCase().trim();
+  const flags = await getEventoFlags(eventoId);
+  const tipoRef = flags?.tipoReferencia || 'unica';
+
+  // Si el evento es "sin_referencia", no se busca ni absorbe nada
+  if(tipoRef === 'sin_referencia'){
+    cacheSet(key, null);
+    return null;
+  }
+
   let result = null;
 
   try{
@@ -151,21 +211,39 @@ export async function matchReferencia(refNum){
     const snap = await getDocs(q);
     if(!snap.empty){
       const d = snap.docs[0].data();
-      result = {
-        source: 'agenda',
-        sourceLabel: 'Cita en agenda',
-        data: {
-          referencia: norm,
-          matricula: d.matricula || '',
-          conductor: d.conductor || '',
-          empresa: d.empresa || '',
-          hall: d.hall || '',
-          stand: d.stand || '',
-          horaPlanificada: d.horaPlanificada || '',
-          eventoId: d.eventoId || null,
-          agendaId: snap.docs[0].id // para luego marcar como llegado
-        }
-      };
+      // Si el evento es "dividida", solo se guarda el código corto, NO se absorben datos
+      if(tipoRef === 'dividida'){
+        result = {
+          source: 'agenda',
+          sourceLabel: 'Referencia dividida (solo código)',
+          tipoRef: 'dividida',
+          data: {
+            referencia: norm,
+            agendaId: snap.docs[0].id
+          }
+        };
+      } else {
+        // Única → absorbe todo
+        result = {
+          source: 'agenda',
+          sourceLabel: 'Cita en agenda',
+          tipoRef: 'unica',
+          data: {
+            referencia: norm,
+            matricula: d.matricula || '',
+            conductor: d.conductor || '',
+            telefono: d.telefono || '',
+            empresa: d.empresa || '',
+            hall: d.hall || '',
+            stand: d.stand || '',
+            montador: d.montador || '',
+            expositor: d.expositor || '',
+            horaPlanificada: d.horaPlanificada || '',
+            eventoId: d.eventoId || null,
+            agendaId: snap.docs[0].id
+          }
+        };
+      }
     }
     cacheSet(key, result);
     return result;
@@ -339,12 +417,15 @@ export function attachAutocomplete(input, type, onPick, opts = {}){
     if(v.length < minChars){ closeDropdown(); return; }
 
     try{
+      // eventoId puede ser valor fijo o función dinámica (para leer del form)
+      const evId = typeof opts.eventoId === 'function' ? opts.eventoId() : opts.eventoId;
+
       if(type === 'matricula'){
-        const m = await matchMatricula(v);
+        const m = await matchMatricula(v, evId);
         suggestions = m ? [{ ...m, label: m.data.matricula, subLabel: m.data.empresa || m.data.conductor }] : [];
       } else if(type === 'referencia'){
-        const m = await matchReferencia(v);
-        suggestions = m ? [{ ...m, label: m.data.referencia, subLabel: `${m.data.matricula || ''} ${m.data.hall ? '· Hall '+m.data.hall : ''}` }] : [];
+        const m = await matchReferencia(v, evId);
+        suggestions = m ? [{ ...m, label: m.data.referencia, subLabel: `${m.data.matricula || ''} ${m.data.hall ? '· Hall '+m.data.hall : ''}${m.tipoRef === 'dividida' ? ' (solo código)' : ''}` }] : [];
       } else if(type === 'conductor'){
         const ms = await matchConductor(v);
         suggestions = ms.map(m => ({ ...m, label: m.data.conductor, subLabel: m.data.empresa || m.data.dni }));

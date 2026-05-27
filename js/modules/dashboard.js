@@ -6,6 +6,7 @@ import { el, clear, icon, fmtTime, fmtRelative } from '../utils.js';
 import { listLive, registerListener, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, statCard, emptyState } from './shared.js';
 import { tr } from '../i18n.js';
+import { validarServicioCompleto } from '../audit.js';
 
 let _container = null;
 const KEY_PREFIX = 'mod:dashboard:';
@@ -42,9 +43,27 @@ function render(){
   const totalIngs = ingresos.length;
   const noLeidos = mensajes.filter(m => !m.leido).length;
 
+  // Validación heurística: cruzar ingresos × referencias × agenda por matrícula
+  const problemas = [];
+  for(const ing of ingresos){
+    if(!ing.matricula) continue;
+    const ref = referencias.find(r => r.matricula === ing.matricula);
+    const ag  = agenda.find(a => a.matricula === ing.matricula);
+    const v = validarServicioCompleto({ ingreso: ing, referencia: ref, agenda: ag });
+    if(!v.ok && v.problemas.some(p => p.sev === 'alto' || p.sev === 'critico')){
+      problemas.push({ ingreso: ing, validacion: v });
+    }
+  }
+
   statsGrid.appendChild(statCard({ label:'En recinto', value:dentro,    iconName:'shield',      color:'green' }));
   statsGrid.appendChild(statCard({ label:'Referencias hoy', value:totalRefs, iconName:'referencias', color:'blue' }));
   statsGrid.appendChild(statCard({ label:'Ingresos hoy',    value:totalIngs, iconName:'ingresos',    color:'amber' }));
+  statsGrid.appendChild(statCard({
+    label:'Servicios con alertas',
+    value: problemas.length,
+    iconName:'shield',
+    color: problemas.length > 0 ? 'red' : 'green'
+  }));
   statsGrid.appendChild(statCard({ label:'Mensajes nuevos', value:noLeidos,  iconName:'mensajes',    color:'purple' }));
   _container.appendChild(statsGrid);
 
@@ -140,6 +159,39 @@ function render(){
   }
   msgsPanel.appendChild(mpb);
   _container.appendChild(msgsPanel);
+
+  // Panel de servicios con problemas (validador heurístico)
+  if(problemas.length > 0){
+    const alertPanel = el('div', { class:'panel', style:{marginTop:'16px'} },
+      el('div', { class:'panel-head' },
+        el('h3', { class:'panel-title', style:{color:'var(--red)'} }, `⚠ ${problemas.length} servicio(s) con alertas`),
+      )
+    );
+    const ab = el('div', { class:'panel-body' });
+    const tbl = el('table', { class:'table' });
+    tbl.appendChild(el('thead', {}, el('tr', {},
+      el('th', {}, 'Matrícula'),
+      el('th', {}, 'Pos.'),
+      el('th', {}, 'Score'),
+      el('th', {}, 'Problemas')
+    )));
+    const tb = el('tbody');
+    for(const p of problemas.slice(0, 10)){
+      const sevColor = p.validacion.score < 50 ? 'var(--red)' : 'var(--amber)';
+      tb.appendChild(el('tr', {},
+        el('td', { class:'cell-plate' }, p.ingreso.matricula),
+        el('td', {}, String(p.ingreso.posicion || '—')),
+        el('td', { style:{color:sevColor, fontWeight:'700'} }, `${p.validacion.score}/100`),
+        el('td', { class:'cell-mute', style:{fontSize:'12px'} },
+          p.validacion.problemas.map(pr => pr.msg).join(' · ')
+        )
+      ));
+    }
+    tbl.appendChild(tb);
+    ab.appendChild(tbl);
+    alertPanel.appendChild(ab);
+    _container.appendChild(alertPanel);
+  }
 }
 
 function attachListeners(){
