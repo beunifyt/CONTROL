@@ -22,10 +22,22 @@ export function destroy(){
   _container = null;
 }
 
-let referencias = [];
-let ingresos = [];
-let agenda = [];
-let mensajes = [];
+let _fDesde = '';
+let _fHasta = '';
+
+// Filtra un array por rango de fecha usando createdAt
+function filtrarPorFecha(arr){
+  if(!_fDesde && !_fHasta) return arr;
+  const desde = _fDesde ? new Date(_fDesde + 'T00:00:00') : null;
+  const hasta = _fHasta ? new Date(_fHasta + 'T23:59:59') : null;
+  return arr.filter(item => {
+    const ts = item.createdAt?.toDate ? item.createdAt.toDate() : (item.createdAt ? new Date(item.createdAt) : null);
+    if(!ts) return false;
+    if(desde && ts < desde) return false;
+    if(hasta && ts > hasta) return false;
+    return true;
+  });
+}
 
 function render(){
   if(!_container) return;
@@ -35,6 +47,32 @@ function render(){
     title: tr('dashboard'),
     sub: 'Métricas en tiempo real de tu operativa'
   }));
+
+  // Barra de filtro por rango de fechas
+  const filtroBar = el('div', { class:'filter-bar', style:{
+    display:'flex', gap:'10px', alignItems:'flex-end', flexWrap:'wrap',
+    padding:'12px', background:'var(--bg2)', borderRadius:'8px',
+    border:'1px solid var(--border)', marginBottom:'16px'
+  }});
+  const inpDesde = el('input', { type:'date', class:'field-input', value:_fDesde });
+  const inpHasta = el('input', { type:'date', class:'field-input', value:_fHasta });
+  inpDesde.onchange = () => { _fDesde = inpDesde.value; render(); };
+  inpHasta.onchange = () => { _fHasta = inpHasta.value; render(); };
+  filtroBar.appendChild(el('label', { style:{display:'flex',flexDirection:'column',gap:'4px',fontSize:'12px'} },
+    el('span', { class:'cell-mute' }, 'Desde'), inpDesde));
+  filtroBar.appendChild(el('label', { style:{display:'flex',flexDirection:'column',gap:'4px',fontSize:'12px'} },
+    el('span', { class:'cell-mute' }, 'Hasta'), inpHasta));
+  if(_fDesde || _fHasta){
+    filtroBar.appendChild(el('button', { class:'btn btn-ghost btn-sm',
+      onclick: () => { _fDesde=''; _fHasta=''; render(); } }, '✕ Limpiar'));
+  }
+  _container.appendChild(filtroBar);
+
+  // Aplicar filtro de fecha a los datos
+  const referencias = filtrarPorFecha(window.__dashRefs || []);
+  const ingresos    = filtrarPorFecha(window.__dashIngs || []);
+  const agenda      = filtrarPorFecha(window.__dashAgenda || []);
+  const mensajes    = window.__dashMsgs || [];
 
   const statsGrid = el('div', { class:'stats-grid' });
   const dentro = referencias.filter(r => r.estado === 'dentro_fira').length
@@ -195,23 +233,23 @@ function render(){
 }
 
 function attachListeners(){
-  listLive('referencias', { key: KEY_PREFIX+'refs', orderBy:'createdAt', order:'desc', limit: 50 }, (items) => {
-    referencias = items;
+  listLive('referencias', { key: KEY_PREFIX+'refs', orderBy:'createdAt', order:'desc', limit: 500 }, (items) => {
+    window.__dashRefs = items;
     render();
   });
 
-  listLive('ingresos', { key: KEY_PREFIX+'ings', orderBy:'createdAt', order:'desc', limit: 50 }, (items) => {
-    ingresos = items;
+  listLive('ingresos', { key: KEY_PREFIX+'ings', orderBy:'createdAt', order:'desc', limit: 500 }, (items) => {
+    window.__dashIngs = items;
     render();
   });
 
-  listLive('agenda', { key: KEY_PREFIX+'agenda', orderBy:'fechaPlanificada', order:'asc', limit: 50 }, (items) => {
-    agenda = items;
+  listLive('agenda', { key: KEY_PREFIX+'agenda', orderBy:'fechaPlanificada', order:'asc', limit: 500 }, (items) => {
+    window.__dashAgenda = items;
     render();
   });
 
   listLive('mensajes', { key: KEY_PREFIX+'msgs', orderBy:'createdAt', order:'desc', limit: 10 }, (items) => {
-    mensajes = items;
+    window.__dashMsgs = items;
     render();
   });
 }

@@ -24,9 +24,16 @@ import { logger } from './logger.js';
  * @returns {HTMLElement}
  */
 export function smartTable(opts){
-  const {module, columns, rows, detailRenderer, rowActions, inlineEdit} = opts;
+  const {module, columns, rows, detailRenderer, rowActions, inlineEdit, pageSize = 50} = opts;
   const profile = getCurrentProfile();
   const uid = profile?.id;
+
+  // Página actual persiste entre re-renders dentro del mismo opts
+  if(opts._page == null) opts._page = 0;
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  if(opts._page >= totalPages) opts._page = totalPages - 1;
+  const pageStart = opts._page * pageSize;
+  const pageRows = rows.slice(pageStart, pageStart + pageSize);
 
   // Cargar config columnas
   const savedConfig = Prefs.getColumns(uid, module);
@@ -40,7 +47,10 @@ export function smartTable(opts){
     background:'var(--surface-2)', display:'flex', gap:'8px',
     alignItems:'center', fontSize:'12px'
   }});
-  configBar.appendChild(el('span', {class:'cell-mute'}, `${rows.length} resultados`));
+  const desde = rows.length ? pageStart + 1 : 0;
+  const hasta = Math.min(pageStart + pageSize, rows.length);
+  configBar.appendChild(el('span', {class:'cell-mute'},
+    rows.length > pageSize ? `${desde}–${hasta} de ${rows.length}` : `${rows.length} resultados`));
   configBar.appendChild(el('div', {class:'flex-1'}));
   if(inlineEdit){
     configBar.appendChild(el('span', { class:'inline-edit-hint' },
@@ -94,7 +104,7 @@ export function smartTable(opts){
 
   // Body
   const tbody = el('tbody');
-  for(const row of rows){
+  for(const row of pageRows){
     const tr = el('tr', {
       style: detailRenderer ? {cursor:'pointer'} : {},
       onclick: detailRenderer ? (e) => {
@@ -137,6 +147,39 @@ export function smartTable(opts){
   }
   tbl.appendChild(tbody);
   wrap.appendChild(tbl);
+
+  // Barra de paginación (solo si hay más de una página)
+  if(totalPages > 1){
+    const pager = el('div', { style:{
+      padding:'10px 12px', borderTop:'1px solid var(--border)',
+      background:'var(--surface-2)', display:'flex', gap:'8px',
+      alignItems:'center', justifyContent:'center', fontSize:'13px'
+    }});
+    const goTo = (p) => {
+      opts._page = Math.max(0, Math.min(totalPages - 1, p));
+      wrap.replaceWith(smartTable({...opts}));
+    };
+    pager.appendChild(el('button', {
+      class:'btn btn-ghost btn-sm', disabled: opts._page === 0 ? 'disabled' : null,
+      onclick: () => goTo(0)
+    }, '« Primera'));
+    pager.appendChild(el('button', {
+      class:'btn btn-ghost btn-sm', disabled: opts._page === 0 ? 'disabled' : null,
+      onclick: () => goTo(opts._page - 1)
+    }, '‹ Anterior'));
+    pager.appendChild(el('span', { class:'cell-mute', style:{margin:'0 8px'} },
+      `Página ${opts._page + 1} de ${totalPages}`));
+    pager.appendChild(el('button', {
+      class:'btn btn-ghost btn-sm', disabled: opts._page >= totalPages - 1 ? 'disabled' : null,
+      onclick: () => goTo(opts._page + 1)
+    }, 'Siguiente ›'));
+    pager.appendChild(el('button', {
+      class:'btn btn-ghost btn-sm', disabled: opts._page >= totalPages - 1 ? 'disabled' : null,
+      onclick: () => goTo(totalPages - 1)
+    }, 'Última »'));
+    wrap.appendChild(pager);
+  }
+
   return wrap;
 }
 
