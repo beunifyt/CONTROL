@@ -71,9 +71,12 @@ export async function init(container){
   _container = container;
   // Esta vista tiene tablas anchas → usar todo el ancho disponible
   container.classList.add('page-wide');
-  _eventos = await list('eventos', { orderBy:'createdAt', order:'desc' });
-  _conductores = await list('conductores', { orderBy:'nombre' });
-  _empresas = await list('empresas', { orderBy:'nombre' });
+  // 3 queries en paralelo (antes eran secuenciales)
+  [_eventos, _conductores, _empresas] = await Promise.all([
+    list('eventos',     { orderBy:'createdAt', order:'desc' }),
+    list('conductores', { orderBy:'nombre', limit: 500 }),
+    list('empresas',    { orderBy:'nombre', limit: 500 })
+  ]);
   // Aplicar evento favorito como filtro por defecto si no hay uno seleccionado
   if(!_filterEvento){
     _filterEvento = getDefaultEventoId(getCurrentProfile());
