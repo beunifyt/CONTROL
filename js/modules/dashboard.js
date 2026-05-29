@@ -7,6 +7,7 @@ import { listLive, registerListener, unregisterListenersByPrefix } from '../db.j
 import { pageHeader, statCard, emptyState } from './shared.js';
 import { tr } from '../i18n.js';
 import { validarServicioCompleto } from '../audit.js';
+import { renderParkingWidget } from '../parking.js';
 
 let _container = null;
 const KEY_PREFIX = 'mod:dashboard:';
@@ -104,6 +105,11 @@ function render(){
   }));
   statsGrid.appendChild(statCard({ label:'Mensajes nuevos', value:noLeidos,  iconName:'mensajes',    color:'purple' }));
   _container.appendChild(statsGrid);
+
+  // Widget de zonas de parking + alertas (ocupación 90% + estancia prolongada)
+  const parkingBox = el('div', { class:'panel', style:{padding:'16px', marginBottom:'16px'} });
+  parkingBox.appendChild(renderParkingWidget(parkingBox, { ingresos, eventoId: null }));
+  _container.appendChild(parkingBox);
 
   const grid = el('div', { class:'panel-grid-2' });
 

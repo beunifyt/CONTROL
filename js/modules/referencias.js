@@ -5,7 +5,7 @@ import { listLive, list, update, remove, createReferencia, isPosicionTaken, whoH
 import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons, printRecord } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
-import { attachAutocomplete, applyDataToForm, markAgendaArrived } from '../autocomplete.js';
+import { attachAutocomplete, applyDataToForm, markAgendaArrived, checkBlacklist } from '../autocomplete.js';
 import { scanPlate } from '../ocr.js';
 import { getHistory, logIncidencia, listIncidencias } from '../audit.js';
 import { logger } from '../logger.js';
@@ -446,6 +446,13 @@ function openForm(item){
     const fd = getFormData(e.target);
     if(!fd.matricula){ toast('La matrícula es obligatoria', 'err'); return; }
     if(!fd.eventoId){ toast('Selecciona un evento', 'err'); return; }
+
+    // Bloqueo duro: empresa o matrícula en lista negra
+    const bl = await checkBlacklist({ empresa: fd.empresa, matricula: fd.matricula });
+    if(bl.blocked){
+      toast(`🚫 Bloqueado — ${bl.reason}`, 'err', 5000);
+      return;
+    }
 
     const payload = {
       matricula: String(fd.matricula).toUpperCase().trim(),

@@ -9,6 +9,35 @@ let _container = null;
 let _items = [];
 const KEY_PREFIX = 'mod:mensajes:';
 
+// ═══════════════════════════════════════════════════════════════
+// MENSAJES AUTOMÁTICOS DEL SISTEMA
+// Cualquier módulo puede llamar autoMsg() para generar un aviso.
+// Dedupe: no repite el mismo (clave) en una ventana de minutos.
+// ═══════════════════════════════════════════════════════════════
+const _autoMsgSeen = new Map(); // clave → timestamp
+
+export async function autoMsg({ titulo, texto, tipo = 'info', linkedColl = null, linkedId = null, dedupeKey = null, dedupeMin = 30 }){
+  try{
+    if(dedupeKey){
+      const last = _autoMsgSeen.get(dedupeKey);
+      if(last && (Date.now() - last) < dedupeMin * 60000){
+        return false; // ya avisado recientemente
+      }
+      _autoMsgSeen.set(dedupeKey, Date.now());
+    }
+    await create('mensajes', {
+      titulo, texto, tipo,
+      linkedColl, linkedId,
+      de: 'Sistema',
+      auto: true,
+      leido: false
+    });
+    return true;
+  } catch(e){
+    return false;
+  }
+}
+
 export async function init(container){
   _container = container;
   render();

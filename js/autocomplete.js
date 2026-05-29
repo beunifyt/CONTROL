@@ -335,8 +335,41 @@ export async function matchEmpresa(nameOrCif){
 }
 
 // ═══════════════════════════════════════════════════════════════
-// UI — vincular un input a sugerencias
+// BLACKLIST — verificación de bloqueo duro (al guardar)
+// Comprueba empresa bloqueada Y matrícula bloqueada.
+// Devuelve { blocked:true, reason } si está vetada, o { blocked:false }.
 // ═══════════════════════════════════════════════════════════════
+export async function checkBlacklist({ empresa, matricula } = {}){
+  try{
+    // 1) Empresa bloqueada (nivel === 'bloqueada')
+    if(empresa && String(empresa).trim()){
+      const norm = normalize(empresa);
+      const snap = await getDocs(query(collection(db, 'empresas'),
+        orderBy('nombre'), limit(300)));
+      const found = snap.docs.map(d => d.data()).find(e =>
+        normalize(e.nombre) === norm || normalize(e.nombre).includes(norm)
+      );
+      if(found && found.nivel === 'bloqueada'){
+        return { blocked: true, reason: `Empresa "${found.nombre}" está en lista negra` };
+      }
+    }
+    // 2) Matrícula bloqueada (colección 'blacklist' con docs { matricula, motivo })
+    if(matricula && String(matricula).trim()){
+      const mat = String(matricula).toUpperCase().trim();
+      const snap = await getDocs(query(collection(db, 'blacklist'),
+        where('matricula', '==', mat), limit(1)));
+      if(!snap.empty){
+        const d = snap.docs[0].data();
+        return { blocked: true, reason: `Matrícula ${mat} bloqueada${d.motivo ? ': ' + d.motivo : ''}` };
+      }
+    }
+    return { blocked: false };
+  } catch(e){
+    logger.warn('checkBlacklist error', { error: e.message });
+    return { blocked: false }; // ante error de red, no bloquear (fail-open con log)
+  }
+}
+
 
 /**
  * Liga un input para que muestre un dropdown con sugerencias.

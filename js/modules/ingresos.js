@@ -5,11 +5,12 @@ import { listLive, list, update, remove, createIngreso, isPosicionTaken, unregis
 import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons, printRecord } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
 import { getCurrentProfile } from '../auth.js';
-import { attachAutocomplete, applyDataToForm } from '../autocomplete.js';
+import { attachAutocomplete, applyDataToForm, checkBlacklist } from '../autocomplete.js';
 import { scanPlate } from '../ocr.js';
 import { logger } from '../logger.js';
 import { smartTable, savedFiltersBar } from '../table-helpers.js';
 import { openContactDriverModal } from '../contact-driver.js';
+import { autoMsg } from './mensajes.js';
 import { getOrderedFields, openFieldConfig, getExtraFieldLabels, openExtraFieldsConfig } from '../field-config.js';
 
 // Catálogo completo de campos del formulario de ingresos.
@@ -255,6 +256,12 @@ async function registrarSalida(i){
   try{
     await update('ingresos', i.id, { estado:'salida', horaSalida });
     toast('Salida registrada', 'ok');
+    autoMsg({
+      titulo:'Salida de parking',
+      texto:`${i.matricula} (pos ${i.posicion || '—'}) salió. Plaza liberada.`,
+      tipo:'info', linkedColl:'ingresos', linkedId:i.id,
+      dedupeKey:`salida:${i.id}`
+    });
   } catch(e){ toast(e.message, 'err'); }
 }
 
@@ -273,6 +280,19 @@ function openForm(item){
     const fd = getFormData(e.target);
     if(!fd.matricula){ toast('La matrícula es obligatoria', 'err'); return; }
     if(!fd.eventoId){ toast('Selecciona un evento', 'err'); return; }
+
+    // Bloqueo duro: empresa o matrícula en lista negra
+    const bl = await checkBlacklist({ empresa: fd.empresa, matricula: fd.matricula });
+    if(bl.blocked){
+      toast(`🚫 Bloqueado — ${bl.reason}`, 'err', 5000);
+      autoMsg({
+        titulo:'Intento de acceso bloqueado',
+        texto: `${bl.reason}. Matrícula ${String(fd.matricula).toUpperCase()}.`,
+        tipo:'alerta',
+        dedupeKey:`bl:${fd.matricula}`, dedupeMin:10
+      });
+      return;
+    }
 
     const payload = {
       matricula: String(fd.matricula).toUpperCase().trim(),
