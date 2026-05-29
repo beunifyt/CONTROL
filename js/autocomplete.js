@@ -17,7 +17,7 @@ import {
   collection, query, where, orderBy, limit, getDocs, doc, getDoc
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import { logger } from './logger.js';
-import { normalize, el, debounce } from './utils.js';
+import { normalize, el, debounce, toast } from './utils.js';
 
 // ── Caché eventos (sus flags se consultan en cada match) ──────
 const _eventoCache = new Map();
@@ -113,6 +113,7 @@ export async function matchMatricula(plate, eventoId = null){
       if(!snapRef.empty){
         const d = snapRef.docs[0].data();
         const base = {
+          _fromHistory: true,
           matricula: d.matricula,
           telefono: d.telefono || '',
           conductorLang: d.conductorLang || d.lang || d.idioma || '',
@@ -148,6 +149,7 @@ export async function matchMatricula(plate, eventoId = null){
       if(!snapIng.empty){
         const d = snapIng.docs[0].data();
         const base = {
+          _fromHistory: true,
           matricula: d.matricula,
           telefono: d.telefono || '',
           conductorLang: d.conductorLang || d.lang || d.idioma || '',
@@ -482,7 +484,10 @@ export function attachAutocomplete(input, type, onPick, opts = {}){
 export function applyDataToForm(form, data, opts = {}){
   const overwrite = opts.overwrite ?? false;
   const skip = new Set(opts.skip || []);
-  let applied = 0;
+  // Datos personales heredados del histórico: pueden ser de OTRO chofer
+  // con la misma matrícula. Se marcan en ámbar para que el operario confirme.
+  const sensibles = new Set(['conductor','apellido','telefono','pasaporte','fNacimiento','pais','email','conductorLang']);
+  let applied = 0, marcados = 0;
   for(const [key, value] of Object.entries(data)){
     if(skip.has(key)) continue;
     if(value == null || value === '') continue;
@@ -491,12 +496,31 @@ export function applyDataToForm(form, data, opts = {}){
     if(!overwrite && input.value && input.value.trim()) continue;
     if(Array.isArray(value)) input.value = value.join(', ');
     else input.value = value;
-    // efecto visual breve
-    input.style.background = '#DCFCE7';
-    setTimeout(() => { input.style.background = ''; }, 600);
+
+    const esSensible = sensibles.has(key) && (data._fromHistory || opts.fromHistory);
+    if(esSensible){
+      // Marcar para confirmar: borde ámbar + flag dataset
+      input.dataset.heredado = '1';
+      input.style.borderColor = '#f59e0b';
+      input.style.background = '#fffbeb';
+      input.title = 'Dato heredado del histórico — verifícalo con el conductor antes de guardar';
+      input.addEventListener('input', function clr(){
+        input.dataset.heredado = '';
+        input.style.borderColor = '';
+        input.style.background = '';
+        input.removeEventListener('input', clr);
+      });
+      marcados++;
+    } else {
+      input.style.background = '#DCFCE7';
+      setTimeout(() => { input.style.background = ''; }, 600);
+    }
     applied++;
   }
-  logger.info(`Autocomplete: ${applied} campos rellenados`);
+  logger.info(`Autocomplete: ${applied} campos rellenados${marcados ? `, ${marcados} a confirmar` : ''}`);
+  if(marcados){
+    try{ toast(`${marcados} dato(s) personal(es) heredados: verifícalos con el conductor`, 'warn', 4000); } catch(_){}
+  }
   return applied;
 }
 
