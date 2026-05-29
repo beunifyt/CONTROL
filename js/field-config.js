@@ -150,3 +150,62 @@ export function openFieldConfig(modulo, allFields, onSave){
   openModal({ title:'⚙ Campos del formulario', body, size:'md' });
   setTimeout(() => body.parentElement.appendChild(footer), 60);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// CAMPOS EXTRA PERSONALIZABLES (5 por módulo)
+// El admin define el nombre visible de extra1..extra5.
+// Se guarda global del módulo (no por usuario) en localStorage.
+// ═══════════════════════════════════════════════════════════════
+const EXTRA_KEY = (modulo) => `beunifyt_extra_labels_${modulo}`;
+
+export function getExtraFieldLabels(modulo){
+  try{
+    const raw = localStorage.getItem(EXTRA_KEY(modulo));
+    return raw ? JSON.parse(raw) : {};
+  } catch(_){ return {}; }
+}
+
+export function setExtraFieldLabels(modulo, labels){
+  try{
+    localStorage.setItem(EXTRA_KEY(modulo), JSON.stringify(labels || {}));
+  } catch(_){}
+}
+
+/**
+ * Modal para que el admin renombre los 5 campos extra de un módulo.
+ */
+export function openExtraFieldsConfig(modulo, onSave){
+  const current = getExtraFieldLabels(modulo);
+  const body = el('div', { class:'fc-body' });
+  body.appendChild(el('p', { class:'cell-mute', style:{marginTop:0, fontSize:'13px'} },
+    'Define el nombre de los 5 campos extra. Déjalo vacío para no usarlo. ',
+    'Estos nombres se aplican a todos los usuarios del módulo.'));
+
+  const inputs = {};
+  for(let i = 1; i <= 5; i++){
+    const key = `extra${i}`;
+    const inp = el('input', { class:'field-input', value: current[key] || '', placeholder:`Nombre del campo extra ${i}` });
+    inputs[key] = inp;
+    body.appendChild(el('div', { class:'field', style:{marginBottom:'8px'} },
+      el('label', { class:'field-label' }, `Campo extra ${i}`), inp
+    ));
+  }
+
+  const footer = el('div', { class:'modal-foot' },
+    el('button', { class:'btn btn-secondary', onclick: closeModal }, 'Cancelar'),
+    el('button', { class:'btn btn-primary', onclick: () => {
+      const labels = {};
+      for(let i = 1; i <= 5; i++){
+        const v = inputs[`extra${i}`].value.trim();
+        if(v) labels[`extra${i}`] = v;
+      }
+      setExtraFieldLabels(modulo, labels);
+      toast('Nombres de campos extra guardados', 'ok');
+      closeModal();
+      if(onSave) onSave();
+    }}, 'Guardar')
+  );
+
+  openModal({ title:'⚙ Nombres de campos extra', body, size:'sm' });
+  setTimeout(() => body.parentElement.appendChild(footer), 60);
+}
