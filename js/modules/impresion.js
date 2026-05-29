@@ -405,31 +405,78 @@ function renderTopbar(){
   return wrap;
 }
 
-// ── COL IZQUIERDA: REGISTROS ──────────────────────────────────
+// ── COL IZQUIERDA: REGISTROS (dropdown desplegable) ───────────
 function renderLeftCol(){
   const col = el('div', { class:'print-col print-col-left' });
   const records = getAllRecords();
   col.appendChild(el('div', { class:'print-col-head' }, `REGISTROS (${records.length})`));
 
   const body = el('div', { class:'print-col-body' });
-  for(const r of records){
-    const isDemo = r.id?.startsWith('__demo');
-    const isActive = _state.selectedRecordId === r.id;
-    const empresa = r.empresa || '—';
-    const sub = [r.hall ? `HH${r.hall}` : '', r.stand].filter(Boolean).join(' · ');
 
-    body.appendChild(el('div', {
-      class: `record-card ${isActive ? 'active' : ''}`,
-      onclick: () => {
+  // Registro seleccionado actual
+  const selected = records.find(r => r.id === _state.selectedRecordId) || records[0];
+  const labelOf = (r) => {
+    if(!r) return 'Seleccionar…';
+    if(r.id?.startsWith('__demo')) return '✏️ Demo (datos de prueba)';
+    const sub = [r.hall ? `HH${r.hall}` : '', r.stand].filter(Boolean).join(' · ');
+    return `${r.matricula || '—'}${r.empresa ? ' · ' + r.empresa : ''}${sub ? ' · ' + sub : ''}`;
+  };
+
+  // Botón que abre/cierra el desplegable
+  const toggle = el('button', { class:'record-dropdown-toggle', type:'button' },
+    el('span', { class:'rdt-label' }, labelOf(selected)),
+    el('span', { class:'rdt-caret' }, '▾')
+  );
+
+  // Panel desplegable (oculto por defecto)
+  const panel = el('div', { class:'record-dropdown-panel', style:{ display:'none' } });
+
+  // Buscador
+  const search = el('input', {
+    type:'text', class:'record-dropdown-search', placeholder:'Buscar matrícula, empresa, stand…'
+  });
+  panel.appendChild(search);
+
+  const listWrap = el('div', { class:'record-dropdown-list' });
+
+  const renderItems = (filter = '') => {
+    listWrap.innerHTML = '';
+    const f = filter.toLowerCase().trim();
+    const filtered = f
+      ? records.filter(r => labelOf(r).toLowerCase().includes(f))
+      : records;
+    for(const r of filtered){
+      const isDemo = r.id?.startsWith('__demo');
+      const isActive = _state.selectedRecordId === r.id;
+      const empresa = r.empresa || '—';
+      const sub = [r.hall ? `HH${r.hall}` : '', r.stand].filter(Boolean).join(' · ');
+      const item = el('div', { class:`record-dropdown-item ${isActive ? 'active' : ''}` },
+        el('div', { class:'record-card-title' }, isDemo ? '✏️ Demo' : (r.matricula || '—')),
+        el('div', { class:'record-card-sub' }, isDemo ? 'Datos de prueba' : `${empresa}${sub ? ' · ' + sub : ''}`)
+      );
+      item.onclick = () => {
         _state.selectedRecordId = r.id;
         if(_state.vehiculoAutoSelect && r.tipoVehiculo) autoSelectByVehicle(r.tipoVehiculo);
         render();
-      }
-    },
-      el('div', { class:'record-card-title' }, isDemo ? `✏️ Demo` : (r.matricula || '—')),
-      el('div', { class:'record-card-sub' }, isDemo ? 'Datos de prueba' : `${empresa}${sub ? '<br>' + sub : ''}`)
-    ));
-  }
+      };
+      listWrap.appendChild(item);
+    }
+    if(!filtered.length){
+      listWrap.appendChild(el('div', { class:'record-card-sub', style:{padding:'10px'} }, 'Sin coincidencias'));
+    }
+  };
+  renderItems();
+
+  search.oninput = () => renderItems(search.value);
+  toggle.onclick = () => {
+    const open = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : 'block';
+    if(!open) setTimeout(() => search.focus(), 50);
+  };
+
+  panel.appendChild(listWrap);
+  body.appendChild(toggle);
+  body.appendChild(panel);
   col.appendChild(body);
   return col;
 }
