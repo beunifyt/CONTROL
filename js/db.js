@@ -359,23 +359,15 @@ export async function whoHasPosicion(coll, eventoId, posicion, options={}){
   return { id: docs[0].id, ...docs[0].data() };
 }
 
-export async function createReferencia(data, opts = {}){
+export async function createReferencia(data){
   if(!data.eventoId) throw new Error('eventoId requerido');
   let posicion = data.posicion ? Number(data.posicion) : null;
   let posicionManual = false;
-  let skipPos = false;
 
   if(posicion){
     const taken = await isPosicionTaken('referencias', data.eventoId, posicion);
     if(taken) throw new Error(`La posición ${posicion} ya está ocupada en este evento`);
     posicionManual = true;
-  } else if(opts.skipAutoPosicion){
-    // Importación masiva desde Excel: la referencia se crea SIN posición.
-    // La posición se asignará cuando el vehículo llegue físicamente.
-    // NO escribimos el campo 'posicion' en el documento (igual que el
-    // alta manual sin posición) para no chocar con las reglas de
-    // Firestore que esperan posicion como número.
-    skipPos = true;
   } else {
     posicion = await nextRefPosicion(data.eventoId);
   }
@@ -383,37 +375,29 @@ export async function createReferencia(data, opts = {}){
   const id = genId('ref');
   const ref = doc(db, 'referencias', id);
   const u = window.__beunifyt_app?.auth?.currentUser;
-  // 'data' puede traer un posicion:null residual del Excel: lo quitamos
-  // y sólo añadimos 'posicion' si realmente hay un valor.
-  const { posicion: _ignore, ...dataClean } = data;
-  const docData = {
-    ...dataClean,
+  await setDoc(ref, {
+    ...data,
+    posicion,
     posicionManual,
     _deleted: false,
     creadoPor: u?.email || null,
     creadoPorUid: u?.uid || null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
-  };
-  if(!skipPos) docData.posicion = posicion;
-  await setDoc(ref, docData);
-  return { id, ...dataClean, posicion: skipPos ? null : posicion, posicionManual };
+  });
+  return { id, ...data, posicion, posicionManual };
 }
 
-export async function createIngreso(data, opts = {}){
+export async function createIngreso(data){
   if(!data.eventoId) throw new Error('eventoId requerido');
   const dayKey = todayKey();
   let posicion = data.posicion ? Number(data.posicion) : null;
   let posicionManual = false;
-  let skipPos = false;
 
   if(posicion){
     const taken = await isPosicionTaken('ingresos', data.eventoId, posicion, { day: dayKey });
     if(taken) throw new Error(`La posición ${posicion} ya está ocupada hoy`);
     posicionManual = true;
-  } else if(opts.skipAutoPosicion){
-    // Importación masiva desde Excel: ingreso creado sin posición.
-    skipPos = true;
   } else {
     posicion = await nextIngPosicion(data.eventoId);
   }
@@ -421,9 +405,9 @@ export async function createIngreso(data, opts = {}){
   const id = genId('ing');
   const ref = doc(db, 'ingresos', id);
   const u = window.__beunifyt_app?.auth?.currentUser;
-  const { posicion: _ignoreIng, ...dataCleanIng } = data;
-  const docDataIng = {
-    ...dataCleanIng,
+  await setDoc(ref, {
+    ...data,
+    posicion,
     posicionManual,
     fechaKey: dayKey,
     _deleted: false,
@@ -431,10 +415,8 @@ export async function createIngreso(data, opts = {}){
     creadoPorUid: u?.uid || null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
-  };
-  if(!skipPos) docDataIng.posicion = posicion;
-  await setDoc(ref, docDataIng);
-  return { id, ...dataCleanIng, posicion: skipPos ? null : posicion, posicionManual, fechaKey: dayKey };
+  });
+  return { id, ...data, posicion, posicionManual, fechaKey: dayKey };
 }
 
 export async function getActiveEvent(){

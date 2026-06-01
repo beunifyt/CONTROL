@@ -59,6 +59,22 @@ let _search = '';
 let _filterToday = true;
 const KEY_PREFIX = 'mod:ingresos:';
 
+// Búsqueda inteligente: prioriza posición si es número
+function filterBySearch(items, searchTerm){
+  if(!searchTerm) return items;
+  const term = searchTerm.trim().toLowerCase();
+  // Si es principalmente números, prioriza búsqueda por posición
+  const isNum = /^\d+$/.test(term);
+  if(isNum){
+    const byPos = items.filter(i => (i.posicion||'').toString().includes(term));
+    if(byPos.length > 0) return byPos;
+  }
+  // Fallback: busca en matrícula, conductor, empresa, posición
+  return items.filter(i => 
+    matchesSearch(term, i.matricula, i.conductor, i.empresa, (i.posicion||'').toString())
+  );
+}
+
 export async function init(container){
   _container = container;
   _eventos = await list('eventos', { orderBy:'createdAt', order:'desc' });
@@ -112,7 +128,7 @@ function render(){
   }));
 
   const filterRow = el('div', { class:'filter-row' });
-  filterRow.appendChild(searchInput({ placeholder:'Buscar matrícula, conductor, empresa…', onInput: v => { _search = v; renderTable(); } }));
+  filterRow.appendChild(searchInput({ placeholder:'Buscar: posición (ej: 42), matrícula, conductor, empresa…', onInput: v => { _search = v; renderTable(); } }));
   filterRow.appendChild(selectInput({
     value: _filterEvento,
     options: [{ value:'', label:'Todos los eventos' }, ..._eventos.map(e => ({ value:e.id, label:e.nombre }))],
@@ -139,7 +155,7 @@ function renderTable(){
   let filtered = _items;
   if(_filterToday) filtered = filtered.filter(i => i.fechaKey === todayKey());
   if(_filterEvento) filtered = filtered.filter(i => i.eventoId === _filterEvento);
-  if(_search) filtered = filtered.filter(i => matchesSearch(_search, i.matricula, i.conductor, i.empresa));
+  if(_search) filtered = filterBySearch(filtered, _search);
 
   t.appendChild(savedFiltersBar({
     module:'ingresos',
