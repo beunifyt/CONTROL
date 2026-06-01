@@ -196,7 +196,7 @@ export function renderParkingWidget(container, { ingresos, eventoId }){
     }},
       el('span', { style:{fontSize:'20px'} }, '🚨'),
       el('span', {}, `Parking al ${occ.pct}% (${occ.totalOcup}/${occ.totalCap}). Prioriza salidas para liberar plazas.`)
-    );
+    ));
   }
 
   // ── Cabecera ──
