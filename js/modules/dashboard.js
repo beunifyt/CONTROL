@@ -107,8 +107,9 @@ function render(){
   _container.appendChild(statsGrid);
 
   // Widget de zonas de parking + alertas (ocupación 90% + estancia prolongada)
+  // Se basa en REFERENCIAS (las que ocupan plazas con posición), no en ingresos.
   const parkingBox = el('div', { class:'panel', style:{padding:'16px', marginBottom:'16px'} });
-  parkingBox.appendChild(renderParkingWidget(parkingBox, { ingresos, eventoId: null }));
+  parkingBox.appendChild(renderParkingWidget(parkingBox, { referencias, eventoId: null }));
   _container.appendChild(parkingBox);
 
   const grid = el('div', { class:'panel-grid-2' });

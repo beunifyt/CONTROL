@@ -16,8 +16,9 @@
 //   renderParkingWidget(container, { ingresos, eventoId }) → HTMLElement
 // ═══════════════════════════════════════════════════════════════
 
-import { el } from './utils.js';
+import { el, todayKey, toast, confirmModal } from './utils.js';
 import { logger } from './logger.js';
+import { update } from './db.js';
 import { autoMsg } from './modules/mensajes.js';
 
 const ZONES_KEY = (ev) => `beunifyt_parking_zones_${ev || 'global'}`;
@@ -64,10 +65,21 @@ export function setAlertConfig(cfg){
   catch(e){ logger.warn('No se pudo guardar alertas', { error:e.message }); }
 }
 
-// Un vehículo está "dentro" si no tiene salida registrada
-function estaDentro(i){
-  if(i.estado === 'salida' || i.horaSalida || i.salida) return false;
-  return i.estado === 'dentro' || i.estado === 'dentro_fira' || i.estado === 'rampa_parking' || !i.estado;
+// Una REFERENCIA está "dentro" del parking si entró a fira y no tiene salida.
+// Las referencias son las que ocupan plazas (tienen posición asignada).
+// Los ingresos tipo A/B pagan y salen rápido → no se cuentan aquí.
+function estaDentro(r){
+  if(r.estado === 'salida' || r.horaSalida) return false;
+  // Estados "dentro" reales: dentro_fira (oficial), rampa_parking, o sin estado pero con horaEntrada
+  if(r.estado === 'dentro_fira' || r.estado === 'rampa_parking') return true;
+  if(r.estado === 'prerregistrado' || r.estado === 'planificado') return false; // aún no llegó
+  return !!r.horaEntrada;
+}
+
+// Referencias sin salida registrada (de cualquier fecha) → para limpieza masiva
+function sinSalidaRegistrada(r){
+  if(r.estado === 'salida' || r.horaSalida) return false;
+  return r.estado === 'dentro_fira' || r.estado === 'rampa_parking' || !!r.horaEntrada;
 }
 
 function zonaDePosicion(pos, zones){
@@ -174,11 +186,14 @@ function fmtDur(min){
  * Renderiza el widget completo (ocupación + alertas) en un contenedor.
  * onRefresh opcional: callback para pedir datos frescos.
  */
-export function renderParkingWidget(container, { ingresos, eventoId }){
+export function renderParkingWidget(container, opts){
+  // Acepta `referencias` (correcto) o `ingresos` (compat antiguo)
+  const referencias = opts.referencias || opts.ingresos || [];
+  const eventoId = opts.eventoId;
   const zones = getZonesConfig(eventoId);
   const alertCfg = getAlertConfig();
-  const occ = computeOccupancy(ingresos, zones);
-  const longStays = computeLongStays(ingresos, alertCfg);
+  const occ = computeOccupancy(referencias, zones);
+  const longStays = computeLongStays(referencias, alertCfg);
 
   const wrap = el('div', { class:'parking-widget' });
 
@@ -200,9 +215,36 @@ export function renderParkingWidget(container, { ingresos, eventoId }){
   }
 
   // ── Cabecera ──
-  const head = el('div', { style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'} },
+  // Vehículos sin salida registrada → permite limpieza masiva
+  const pendientes = (referencias || []).filter(sinSalidaRegistrada);
+  const head = el('div', { style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'} },
     el('h3', { class:'panel-title' }, `Ocupación de parking · ${occ.totalOcup}/${occ.totalCap} (${occ.pct}%)`),
-    el('button', { class:'btn btn-ghost btn-sm', onclick: () => openZonesConfig(eventoId, () => renderInto()) }, '⚙ Zonas')
+    el('div', { style:{display:'flex',gap:'6px',flexWrap:'wrap'} },
+      pendientes.length > 0 ? el('button', {
+        class:'btn btn-warn btn-sm',
+        title: `${pendientes.length} referencias sin salida en parking`,
+        onclick: async () => {
+          const ok = await confirmModal({
+            title:'Cerrar parking (salida masiva)',
+            message:`Se registrará salida a ${pendientes.length} referencias en el parking.\n\nHora actual para las del día. Hora 23:59 para las de días previos.\n\n¿Continuar?`,
+            confirmText:'Cerrar parking', confirmClass:'btn-warn'
+          });
+          if(!ok) return;
+          const hhmm = new Date().toTimeString().slice(0,5);
+          let ok2=0, err=0;
+          for(const r of pendientes){
+            try{
+              const horaSalida = (!r.fechaKey || r.fechaKey === todayKey()) ? hhmm : '23:59';
+              await update('referencias', r.id, { horaSalida, estado:'salida' });
+              ok2++;
+            }catch(_){ err++; }
+          }
+          toast(`✅ Parking cerrado · ${ok2} salidas${err?` (${err} errores)`:''}`, 'ok', 4500);
+          renderInto();
+        }
+      }, `🧹 Cerrar parking (${pendientes.length})`) : null,
+      el('button', { class:'btn btn-ghost btn-sm', onclick: () => openZonesConfig(eventoId, () => renderInto()) }, '⚙ Zonas')
+    )
   );
   wrap.appendChild(head);
 
