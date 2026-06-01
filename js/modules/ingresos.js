@@ -1,6 +1,6 @@
 // ingresos.js — Ingresos libres (tipo 2) con campo Posición separado
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, matchesSearch, fmtTime, todayKey, chipTel } from '../utils.js';
-import { getDefaultEventoId } from '../utils.js';
+import { getDefaultEventoId, resolveEventoIdForNewRecord, setLastUsedEventoId } from '../utils.js';
 import { listLive, list, update, remove, createIngreso, isPosicionTaken, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons, printRecord } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
@@ -283,10 +283,22 @@ async function registrarSalida(i){
 
 function openForm(item){
   const isEdit = !!item;
+  const p = getCurrentProfile();
+  // Resolver eventoId inicial: favorito > último usado > único activo > vacío con aviso
+  let initialEvento = '';
+  if(!isEdit){
+    const r = resolveEventoIdForNewRecord(p, _eventos, 'ingresos');
+    initialEvento = r.eventoId;
+    if(r.source === 'none' && r.activosCount > 1){
+      toast(`Hay ${r.activosCount} eventos activos. Selecciona uno para asignar el registro.`, 'warn', 4500);
+    } else if(r.source === 'none' && r.activosCount === 0){
+      toast('No hay eventos activos. Crea o activa un evento primero.', 'err', 4500);
+    }
+  }
   const data = item || {
     matricula:'', conductor:'', telefono:'', empresa:'',
     hall:'', stand:'', remolque:'', tipoVehiculo:'camion',
-    eventoId:'', posicion:'', estado:'dentro',
+    eventoId: initialEvento, posicion:'', estado:'dentro',
     horaEntrada: new Date().toTimeString().slice(0,5),
     notas:''
   };
@@ -361,6 +373,7 @@ function openForm(item){
       } else {
         await createIngreso(payload);
       }
+      setLastUsedEventoId('ingresos', payload.eventoId);
       toast(isEdit ? 'Actualizado' : 'Ingreso creado', 'ok');
       closeModal();
     } catch(e){

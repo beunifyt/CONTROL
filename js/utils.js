@@ -396,3 +396,33 @@ export function chipEmail(email){
 export function getDefaultEventoId(profile){
   return profile?.favEventoId || '';
 }
+
+// Resuelve eventoId a usar al crear un nuevo registro:
+// 1. Si hay favorito y existe entre eventos activos → usarlo (sin aviso)
+// 2. Si no, último usado en ese módulo (localStorage)
+// 3. Si solo hay 1 evento activo → usarlo
+// 4. Si no hay nada → '' y se debe avisar
+// Devuelve { eventoId, source: 'fav'|'last'|'only'|'none', activosCount }
+export function resolveEventoIdForNewRecord(profile, eventos, modulo){
+  const activos = (eventos || []).filter(e => !e.estado || e.estado === 'activo');
+  const fav = profile?.favEventoId;
+  if(fav && activos.some(e => e.id === fav)){
+    return { eventoId: fav, source: 'fav', activosCount: activos.length };
+  }
+  try{
+    const last = localStorage.getItem(`beunifyt_lastEvento_${modulo}`);
+    if(last && activos.some(e => e.id === last)){
+      return { eventoId: last, source: 'last', activosCount: activos.length };
+    }
+  }catch(_){}
+  if(activos.length === 1){
+    return { eventoId: activos[0].id, source: 'only', activosCount: 1 };
+  }
+  return { eventoId: '', source: 'none', activosCount: activos.length };
+}
+
+// Persiste el último evento usado por módulo (se llama al guardar con éxito)
+export function setLastUsedEventoId(modulo, eventoId){
+  if(!eventoId || !modulo) return;
+  try{ localStorage.setItem(`beunifyt_lastEvento_${modulo}`, eventoId); }catch(_){}
+}

@@ -1,6 +1,6 @@
 // agenda.js — citas planificadas con hora plan vs hora real
 import { el, clear, icon, toast, openModal, closeModal, confirmModal, formField, getFormData, fmtDate, matchesSearch } from '../utils.js';
-import { getDefaultEventoId } from '../utils.js';
+import { getDefaultEventoId, resolveEventoIdForNewRecord, setLastUsedEventoId } from '../utils.js';
 import { listLive, list, create, update, remove, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, emptyState, searchInput, selectInput, statusBadge, excelButtons, printRecord } from './shared.js';
 import { canCreate, canEdit, canDelete } from '../roles.js';
@@ -288,9 +288,20 @@ async function marcarLlegado(a){
 
 function openForm(item){
   const isEdit = !!item;
+  const p = getCurrentProfile();
+  let initialEvento = '';
+  if(!isEdit){
+    const r = resolveEventoIdForNewRecord(p, _eventos, 'agenda');
+    initialEvento = r.eventoId;
+    if(r.source === 'none' && r.activosCount > 1){
+      toast(`Hay ${r.activosCount} eventos activos. Selecciona uno para asignar el registro.`, 'warn', 4500);
+    } else if(r.source === 'none' && r.activosCount === 0){
+      toast('No hay eventos activos. Crea o activa un evento primero.', 'err', 4500);
+    }
+  }
   const data = item || {
     matricula:'', conductor:'', empresa:'',
-    eventoId:'', hall:'', stand:'',
+    eventoId: initialEvento, hall:'', stand:'',
     fechaPlanificada:'', horaPlanificada:'', horaReal:'',
     estado:'planificado', notas:'',
     requisitos:[], gastos:[]
@@ -341,6 +352,7 @@ function openForm(item){
       } else {
         await create('agenda', payload);
       }
+      if(payload.eventoId) setLastUsedEventoId('agenda', payload.eventoId);
       toast('Guardado', 'ok');
       closeModal();
     } catch(e){ toast(e.message, 'err'); }
