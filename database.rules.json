@@ -1,0 +1,39 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+    "users": {
+      "$uid": {
+        ".read": "auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin'",
+        ".write": "auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin'",
+        "role": {
+          ".write": "root.child('users').child(auth.uid).child('role').val() === 'admin'"
+        }
+      }
+    },
+    "vehiculos": {
+      ".read": "auth != null",
+      ".write": "root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$vehiculoId": {
+        ".read": "auth != null",
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'admin'"
+      }
+    },
+    "eventos": {
+      ".read": "auth != null",
+      ".write": "root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$eventoId": {
+        ".read": "auth != null",
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'admin'"
+      }
+    },
+    "accesos": {
+      ".read": "auth != null",
+      ".write": "root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$accesoId": {
+        ".read": "auth != null",
+        ".write": "false"
+      }
+    }
+  }
+}

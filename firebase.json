@@ -1,0 +1,27 @@
+{
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      ".git/**",
+      "docs/**",
+      "*.md"
+    ],
+    "redirects": [
+      {
+        "source": "/",
+        "destination": "/index.html",
+        "type": 200
+      }
+    ]
+  }
+}
