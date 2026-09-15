@@ -157,3 +157,4 @@ Para que Claude (u otro asistente) revise el código contra ese checklist en el 
 ## 📞 Soporte
 
 Pull requests bienvenidas. Reportes de bugs preferentemente con número del checklist (P-02, F-01, etc.).
+# Firebase Security Rules Updated
