@@ -15,36 +15,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Set up Node.js
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
       
       - name: Install Firebase CLI
-        run: npm install -g firebase-tools
+        run: npm install -g firebase-tools@latest
       
-      - name: Create firebase credentials
-        env:
-          FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
-        run: |
-          echo "$FIREBASE_CREDENTIALS" > /tmp/firebase-key.json
-          ls -lh /tmp/firebase-key.json
-      
-      - name: Deploy Hosting to Firebase
+      - name: Authenticate with Firebase
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          firebase deploy --token "$FIREBASE_TOKEN" --project control-f84ee --only hosting
+          firebase login:ci --token "$FIREBASE_TOKEN" 2>&1 || true
       
-      - name: Deploy Firestore Rules
+      - name: Deploy to Firebase Hosting
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          firebase deploy --token "$FIREBASE_TOKEN" --project control-f84ee --only firestore:rules
+          firebase deploy \
+            --token "$FIREBASE_TOKEN" \
+            --project control-f84ee \
+            --only hosting:control-f84ee \
+            --non-interactive \
+            --debug
       
       - name: Verify deployment
+        if: success()
         run: |
           echo "✅ Deployment successful"
           echo "Project: control-f84ee"
           echo "Hosting: https://control-f84ee.web.app"
-          echo "Rules: firestore.rules deployed"
