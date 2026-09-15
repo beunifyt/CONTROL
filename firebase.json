@@ -1,11 +1,4 @@
 {
-  "database": {
-    "rules": "database.rules.json"
-  },
-  "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
-  },
   "hosting": {
     "public": ".",
     "ignore": [
@@ -14,14 +7,15 @@
       "**/node_modules/**",
       ".git/**",
       "docs/**",
-      "*.md"
+      "*.md",
+      "patch-*.js",
+      "test-*.html"
     ],
-    "redirects": [
-      {
-        "source": "/",
-        "destination": "/index.html",
-        "type": 200
-      }
-    ]
+    "cleanUrls": true,
+    "trailingSlash": false
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   }
 }
