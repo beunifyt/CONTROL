@@ -10,39 +10,29 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools@latest
-      
-      - name: Authenticate with Firebase
+        uses: actions/checkout@v5
+
+      # Si no existe el secret, se omite el deploy (sin fallar el workflow)
+      - name: Check credentials
+        id: creds
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
-          firebase login:ci --token "$FIREBASE_TOKEN" 2>&1 || true
-      
+          if [ -z "$SA" ]; then
+            echo "::warning::Falta el secret FIREBASE_SERVICE_ACCOUNT. Deploy a Firebase omitido."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Deploy to Firebase Hosting
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: |
-          firebase deploy \
-            --token "$FIREBASE_TOKEN" \
-            --project control-f84ee \
-            --only hosting:control-f84ee \
-            --non-interactive \
-            --debug
-      
-      - name: Verify deployment
-        if: success()
-        run: |
-          echo "✅ Deployment successful"
-          echo "Project: control-f84ee"
-          echo "Hosting: https://control-f84ee.web.app"
+        if: steps.creds.outputs.ok == 'true'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: control-f84ee
+          target: control-f84ee
+          channelId: live
