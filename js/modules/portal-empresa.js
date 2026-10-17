@@ -16,7 +16,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { el, clear, icon, toast, fmtTime } from '../utils.js';
-import { list, unregisterListenersByPrefix } from '../db.js';
+import { list, get, update, unregisterListenersByPrefix } from '../db.js';
 import { pageHeader, emptyState, statusBadge } from './shared.js';
 import { getCurrentProfile } from '../auth.js';
 import { logger } from '../logger.js';
@@ -57,40 +57,47 @@ export function destroy(){
   _container = null;
 }
 
+// Solo se lee LA empresa del usuario (nunca la lista completa):
+//   1) por profile.empresaId, o 2) por el email de la cuenta.
+// Si se encuentra por email, se guarda el vínculo en el perfil (las reglas
+// solo lo permiten si la empresa está registrada con ese mismo email).
 async function loadEmpresa(profile){
+  _empresa = null;
   try{
-    const empresas = await list('empresas');
-    _empresa = empresas.find(e =>
-      e.id === profile.empresaId ||
-      (e.email && profile.email && e.email.toLowerCase() === profile.email.toLowerCase())
-    );
+    if(profile.empresaId){
+      _empresa = await get('empresas', profile.empresaId);
+    }
+    if(!_empresa && profile.email){
+      const found = await list('empresas', { where:{ email: String(profile.email).toLowerCase() }, limit:1 });
+      _empresa = found[0] || null;
+      if(_empresa && profile.empresaId !== _empresa.id){
+        try{ await update('users', profile.id, { empresaId: _empresa.id }); profile.empresaId = _empresa.id; }
+        catch(e){ logger.warn('Portal: no se pudo vincular la empresa al perfil', { error: e.message }); }
+      }
+    }
   } catch(e){
     logger.error('Portal: error cargando empresa', { error: e.message });
     _empresa = null;
   }
 }
 
+// Solo los registros de SU empresa, filtrados en el servidor (por id y por nombre).
 async function loadData(){
   if(!_empresa) return;
+  const mine = async (coll, byName) => {
+    const reqs = [list(coll, { where:{ empresaId: _empresa.id }, limit:500 })];
+    if(byName && _empresa.nombre) reqs.push(list(coll, { where:{ empresa: _empresa.nombre }, limit:500 }));
+    const res = await Promise.allSettled(reqs);
+    const out = new Map();
+    for(const r of res){ if(r.status === 'fulfilled') for(const d of r.value) if(!d._deleted) out.set(d.id, d); }
+    return [...out.values()];
+  };
   try{
     [_refs, _ingresos, _flota] = await Promise.all([
-      list('referencias', { where:{ empresaId: _empresa.id } }),
-      list('ingresos',    { where:{ empresaId: _empresa.id } }),
-      list('flota',       { where:{ empresaId: _empresa.id } })
+      mine('referencias', true),
+      mine('ingresos', true),
+      mine('flota', false)
     ]);
-    // Fallback por nombre de empresa si empresaId no estaba poblado en docs antiguos
-    if(_refs.length === 0 && _empresa.nombre){
-      const allRefs = await list('referencias');
-      _refs = allRefs.filter(r => r.empresa === _empresa.nombre);
-    }
-    if(_ingresos.length === 0 && _empresa.nombre){
-      const allIng = await list('ingresos');
-      _ingresos = allIng.filter(i => i.empresa === _empresa.nombre);
-    }
-    if(_flota.length === 0 && _empresa.nombre){
-      const allFlota = await list('flota');
-      _flota = allFlota.filter(v => v.empresa === _empresa.nombre);
-    }
   } catch(e){
     logger.error('Portal: error cargando datos', { error: e.message });
     _refs = []; _ingresos = []; _flota = [];

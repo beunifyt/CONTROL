@@ -53,6 +53,8 @@ Antes de cada deploy, recorre **PRE-DEPLOY CHECKLIST** (sección 12).
 ### A-02 🔴 Reglas Firestore permiten leer todo
 **Mitigación**: en `firestore.rules`, `users/{uid}` solo permite leer al propio user o admin.
 
+> **Estado 2026-10-17:** el `firestore.rules` del repo NO tenía lo descrito en A-02/A-03 (dejaba leer y escribir todo a cualquier cuenta con sesión y permitía auto-ascenderse a admin). Reescrito y probado en emulador (83 casos): sin sesión nada; perfil nuevo solo como `user` inactivo, con invitación de su email o el email bootstrap verificado; nadie cambia su propio rol/activo/empresa/permisos; personal activo lee la operativa y escribe si su rol no es `user`; empresa solo lee su empresa y sus registros; auditoría solo añadir. **Pendiente:** matriz por módulo (`config/permisos`) en servidor.
+
 ### A-03 🔴 Permisos solo en frontend
 **Mitigación**: matriz replicada en `firestore.rules` con funciones `canCreate()`, `canEdit()`, `canDelete()` que leen `config/permisos`.
 **Test**: con cuenta operario sin permiso de delete, ejecutar `deleteDoc` desde consola → debe lanzar `permission-denied`.

@@ -39,4 +39,5 @@ export const db = getFirestore(app);
 
 export const storage = getStorage(app);
 window.__beunifyt_app = { app, auth, db, storage, version: appVersion };
-export const geminiApiKey = 'AIzaSyB3UXxzt9UpIhRgVRQGdJKClEqsgSY3pzw';
+// La clave de Gemini ya NO va en el código (el repositorio es público).
+// Se guarda en Firestore: config/ai → campo geminiKey (solo la lee el personal activo).

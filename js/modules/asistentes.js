@@ -7,7 +7,7 @@
 import { el, clear, icon, toast } from '../utils.js';
 import { pageHeader } from './shared.js';
 import { getCurrentProfile } from '../auth.js';
-import { isGeminiAvailable, chatWithGemini } from '../gemini.js';
+import { isGeminiAvailable, chatWithGemini, loadGeminiKey } from '../gemini.js';
 import { create, list, update } from '../db.js';
 import { getLang } from '../i18n.js';
 
@@ -86,6 +86,8 @@ ESTILO:
 
 export async function init(container){
   _container = container;
+  await loadGeminiKey();
+  if(_container !== container) return;
   render();
 }
 
@@ -114,12 +116,10 @@ function renderNotConfigured(){
     el('p', {}, 'Los asistentes IA usan Google Gemini (gratis hasta 60 peticiones/min).'),
     el('ol', { class:'asistente-empty-steps' },
       el('li', {}, el('span', {}, 'Ve a '), el('a', { href:'https://aistudio.google.com/app/apikey', target:'_blank', class:'chip-link' }, 'aistudio.google.com/app/apikey'), ' y crea una API key gratis'),
-      el('li', {}, 'Abre el archivo ', el('code', {}, 'firebase-config.js'), ' de tu proyecto'),
-      el('li', {}, 'Añade esta línea al final:'),
+      el('li', {}, 'En la consola de Firebase → Firestore, crea el documento ', el('code', {}, 'config/ai'), ' con el campo ', el('code', {}, 'geminiKey'), ' (texto) y pega la clave'),
+      el('li', {}, 'En Google Cloud → Credenciales, restringe la clave a la API Generative Language y a los dominios de la app'),
     ),
-    el('pre', { class:'asistente-config-code' },
-      `export const geminiApiKey = 'AIzaSy... tu clave aquí ...';`
-    ),
+    el('p', { class:'cell-mute' }, 'No la pongas en el código: el repositorio es público.'),
     el('p', { class:'cell-mute' }, 'Recarga la página y los asistentes estarán listos.')
   ));
 }

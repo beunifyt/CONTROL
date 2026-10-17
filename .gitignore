@@ -1,0 +1,11 @@
+# Secretos y configuraciones locales: nunca al repositorio (es público)
+.env
+.env.*
+*.local.js
+*-secret*.json
+*serviceAccount*.json
+service-account*.json
+node_modules/
+.firebase/
+firebase-debug.log
+firestore-debug.log

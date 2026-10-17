@@ -13,18 +13,28 @@
 //
 // Para activar:
 //   1. Ve a https://aistudio.google.com/app/apikey y crea una API key
-//   2. Añade en firebase-config.js:
-//        export const geminiApiKey = 'AIza...';
+//   2. Guárdala en Firestore (consola de Firebase): colección config,
+//      documento ai, campo geminiKey (texto). Nunca en el código: el repo es público.
+//   3. En Google Cloud → Credenciales, restringe la clave a la API
+//      «Generative Language» y a los dominios de la app.
 // ═══════════════════════════════════════════════════════════════
 import { logger } from './logger.js';
+import { db } from './firebase-config.js';
+import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const GEMINI_MODEL = 'gemini-2.5-flash-lite'; // 1000 req/día gratis
 
 let _apiKey = '';
-try{
-  const cfg = await import('./firebase-config.js');
-  _apiKey = cfg.geminiApiKey || '';
-} catch(_){ /* sin config, ok */ }
+let _keyLoaded = null;
+
+// Lee la clave de config/ai (reglas: solo personal activo). Una lectura por sesión.
+export function loadGeminiKey(){
+  if(_keyLoaded) return _keyLoaded;
+  _keyLoaded = getDoc(doc(db, 'config', 'ai'))
+    .then(snap => { _apiKey = (snap.exists() && snap.data().geminiKey) || ''; return !!_apiKey; })
+    .catch(e => { logger.warn('Gemini: no se pudo leer config/ai', { error: e.message }); _keyLoaded = null; return false; });
+  return _keyLoaded;
+}
 
 // Comprueba si Gemini está disponible
 export function isGeminiAvailable(){
@@ -42,7 +52,7 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
  */
 export async function chatWithGemini(systemPrompt, history, userMessage){
   if(!_apiKey){
-    throw new Error('Gemini API key no configurada. Añade geminiApiKey en firebase-config.js');
+    throw new Error('Gemini API key no configurada. Guárdala en Firestore: config/ai → geminiKey');
   }
 
   // Construir el array contents en formato Gemini

@@ -36,3 +36,17 @@ jobs:
           projectId: control-f84ee
           target: control-f84ee
           channelId: live
+
+      # Reglas de seguridad de Firestore (firestore.rules). Sin ellas, la base de datos
+      # queda con las reglas que haya en la consola. Si la cuenta de servicio no tiene
+      # el rol "Firebase Rules Admin", este paso avisa y no rompe el deploy de la web.
+      - name: Deploy Firestore rules
+        if: steps.creds.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx -y firebase-tools@13 deploy --only firestore:rules --project control-f84ee --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"

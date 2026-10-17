@@ -1,20 +1,183 @@
 rules_version = '2';
+// ═══════════════════════════════════════════════════════════════════════
+// BeUnifyT — reglas Firestore (2026-10-17)
+//
+// Principio: todo cerrado salvo lo permitido aquí.
+//   · Sin sesión: nada.
+//   · Cuenta nueva: solo puede crear SU perfil como 'user' inactivo
+//     (o con invitación válida para SU email, o el email bootstrap como admin).
+//   · Nadie puede cambiarse a sí mismo rol, activo, empresa ni permisos.
+//   · Personal activo (no 'empresa'): lee la operativa; escribe si su rol no es 'user'.
+//   · Admin: todo.
+//   · Empresa (portal B2B): solo su empresa y los registros de su empresa, solo lectura.
+//
+// Pendiente (siguiente paso): permisos por módulo (matriz config/permisos) en servidor.
+// ═══════════════════════════════════════════════════════════════════════
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Solo usuarios autenticados pueden leer/escribir
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    // ── Utilidades ─────────────────────────────────────────────
+    function signedIn()   { return request.auth != null; }
+    function myEmail()    { return request.auth.token.email != null ? request.auth.token.email.lower() : ''; }
+    function profPath()   { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function hasProfile() { return signedIn() && exists(profPath()); }
+    function me()         { return get(profPath()).data; }
+    function active()     { return hasProfile() && me().get('active', false) == true; }
+    function role()       { return me().get('role', 'user'); }
+    function isAdmin()    { return active() && role() == 'admin'; }
+    function isStaff()    { return active() && role() != 'empresa'; }
+    function canWrite()   { return isStaff() && role() != 'user'; }
+    function isEmpresa()  { return active() && role() == 'empresa'; }
+    function myEmpresaId(){ return me().get('empresaId', ''); }
+    function empPath(id)  { return /databases/$(database)/documents/empresas/$(id); }
+    function myEmpresaNombre(){ return get(empPath(myEmpresaId())).data.get('nombre', '__sin_nombre__'); }
+
+    // Campos que solo el admin puede tocar en un perfil
+    function protectedProfileKeys(){
+      return ['role','active','empresa','empresaId','modulePerms','requireDeviceApproval','invitedBy','inviteCode','email','createdAt'];
     }
-    
-    // Admin solo (carlosreyesrivera12@gmail.com)
-    match /admin/{doc=**} {
-      allow read, write: if request.auth.token.email == 'carlosreyesrivera12@gmail.com';
+
+    // ── Perfiles ───────────────────────────────────────────────
+    match /users/{uid} {
+      allow get:    if (signedIn() && request.auth.uid == uid) || isStaff();
+      allow list:   if isStaff();
+      allow delete: if isAdmin();
+
+      // Alta del propio perfil (auth.js → loadOrCreateProfile)
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.email == myEmail()
+        && (
+          // a) cuenta normal: pendiente de aprobación
+          (request.resource.data.role == 'user' && request.resource.data.active == false
+             && request.resource.data.get('inviteCode', null) == null)
+          // b) email bootstrap → admin (solo con email verificado)
+          || (myEmail() == 'carlosreyesrivera12@gmail.com' && request.auth.token.email_verified == true
+             && request.resource.data.role == 'admin')
+          // c) invitación válida para ESTE email
+          || inviteOk(request.resource.data)
+        );
+
+      // Cambios: el admin, todo. El propio usuario, nada protegido…
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedProfileKeys()))
+        // …salvo vincular su cuenta de empresa a la empresa registrada con SU email
+        || (signedIn() && request.auth.uid == uid && resource.data.get('role', '') == 'empresa'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['empresaId','updatedAt'])
+            && exists(empPath(request.resource.data.empresaId))
+            && get(empPath(request.resource.data.empresaId)).data.get('email', '').lower() == myEmail());
     }
-    
-    // Usuarios específicos pueden escribir sus datos
-    match /users/{userId} {
-      allow read, write: if request.auth.uid == userId;
-      allow read: if request.auth.token.email == 'carlosreyesrivera12@gmail.com';
+
+    function invPath(code) { return /databases/$(database)/documents/invites/$(code); }
+    function inviteOk(p){
+      return p.get('inviteCode', null) is string
+        && exists(invPath(p.inviteCode))
+        && inviteValid(get(invPath(p.inviteCode)).data, p);
     }
+    function inviteValid(inv, p){
+      return inv.get('used', true) == false
+        && inv.get('expiresAt', 0) > request.time.toMillis()
+        && inv.get('email', '') == myEmail()
+        && p.role == inv.get('role', 'user')
+        && p.role != 'empresa';
+    }
+
+    // ── Invitaciones ───────────────────────────────────────────
+    match /invites/{code} {
+      // Leer UNA invitación por su código (para validarla al entrar). Listar: solo admin.
+      allow get:    if signedIn();
+      allow list:   if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        // Consumir la invitación propia: solo marca de uso
+        || (signedIn() && resource.data.get('used', true) == false
+            && resource.data.get('email', '') == myEmail()
+            && request.resource.data.used == true
+            && request.resource.data.usedByUid == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used','usedBy','usedByUid','usedAt']));
+    }
+
+    // ── Configuración (permisos por rol, etc.) ─────────────────
+    match /config/{doc} {
+      // permisos: cualquier cuenta activa (también empresa). Resto (p. ej. ai = clave Gemini): solo personal.
+      allow read:  if (doc == 'permisos' && active()) || isStaff();
+      allow write: if isAdmin();
+    }
+
+    // ── Dispositivos ───────────────────────────────────────────
+    match /devices/{id} {
+      allow get:    if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow list:   if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid
+        && id.matches(request.auth.uid + '_.*')
+        && (request.resource.data.approved == false || isAdmin()
+            || (hasProfile() && me().get('requireDeviceApproval', true) == false));
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.uid == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen']));
+      allow delete: if isAdmin();
+    }
+
+    // ── Auditoría: solo añadir, nunca cambiar ──────────────────
+    match /audit/{id} {
+      allow read:   if isStaff();
+      allow create: if hasProfile()
+        && (request.resource.data.get('uid', request.auth.uid) == request.auth.uid)
+        && (request.resource.data.get('userId', request.auth.uid) == request.auth.uid);
+      allow update, delete: if false;
+    }
+    match /audit_exports/{id} {
+      allow read:   if isAdmin();
+      allow create: if isStaff();
+      allow update, delete: if false;
+    }
+
+    // ── Chats de asistentes: cada uno los suyos ───────────────
+    match /asistente_chats/{id} {
+      allow read, update, delete: if isStaff() && resource.data.uid == request.auth.uid;
+      allow create: if isStaff() && request.resource.data.uid == request.auth.uid;
+    }
+
+    // ── Empresas ───────────────────────────────────────────────
+    match /empresas/{id} {
+      allow read:  if isStaff()
+        || (isEmpresa() && (id == myEmpresaId() || resource.data.email == myEmail()));
+      allow write: if canWrite();
+    }
+
+    // ── Registros que el portal de empresa puede leer (solo los suyos) ──
+    match /referencias/{id} {
+      allow read:  if isStaff() || empresaPuedeLeer();
+      allow write: if canWrite();
+    }
+    match /ingresos/{id} {
+      allow read:  if isStaff() || empresaPuedeLeer();
+      allow write: if canWrite();
+    }
+    match /flota/{id} {
+      allow read:  if isStaff() || empresaPuedeLeer();
+      allow write: if canWrite();
+    }
+    function empresaPuedeLeer(){
+      return isEmpresa() && myEmpresaId() != ''
+        && (resource.data.empresaId == myEmpresaId()
+            || resource.data.empresa == myEmpresaNombre());
+    }
+
+    // ── Operativa del personal ─────────────────────────────────
+    function staffColl(c){
+      return c in ['eventos','recintos','agenda','conductores','turnos','mensajes',
+                   'incidencias','preregistros','blacklist','counters','templates_global'];
+    }
+    match /{coll}/{id} {
+      allow read:  if staffColl(coll) && isStaff();
+      allow write: if staffColl(coll) && canWrite();
+    }
+    match /eventos/{eventoId}/templates/{tplId} {
+      allow read:  if isStaff();
+      allow write: if canWrite();
+    }
+
+    // Cualquier otra ruta: cerrada (regla por defecto de Firestore).
   }
 }

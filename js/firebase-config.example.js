@@ -28,7 +28,7 @@ export const inviteTtlDays = 7;
 // ── Asistentes IA (Gemini) ─────────────────────────────────
 // Obtén una API key gratis en https://aistudio.google.com/app/apikey
 // Gratis hasta 60 peticiones/minuto. Deja '' si no quieres usar IA.
-export const geminiApiKey = '';
+// Gemini: NO pongas la clave aquí (repo público). Va en Firestore → config/ai → geminiKey.
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
